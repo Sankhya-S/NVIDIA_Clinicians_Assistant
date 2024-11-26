@@ -1,4 +1,4 @@
-![NVIDID_Clinicians_Assistant](Image_Folder/Header.png)
+![NVIDID_Clinicians_Assistant](Image_Folder/Header_2.png)
 
 
 # NVIDIA Clinicians Assistant
