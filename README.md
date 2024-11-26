@@ -1,3 +1,6 @@
+![NVIDID_Clinicians_Assistant](image-folder/Header.png)
+
+
 # NVIDIA Clinicians Assistant
 
 ## Background
