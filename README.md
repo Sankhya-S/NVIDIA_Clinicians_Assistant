@@ -33,7 +33,30 @@ The data is sourced from the Beth Israel Deaconess Medical Center in Boston, MA,
 
 
 
-## Evaluating Performance
+## Evaluation Using Ragas
+
+### Overview
+Ragas is an open-source library designed for evaluating Large Language Model (LLM) applications, specifically **Retrieval Augmented Generation (RAG)** pipelines. This project uses Ragas to assess the performance of our clinical assistant chatbot and iteratively improve its architecture.
+
+### Evaluation Workflow
+Ragas allows us to:
+1. Generate a test set of queries.
+2. Evaluate pipeline performance using the `evaluate_pipeline` function and a set of metrics.
+3. Compare answers to test set queries against the ground truth.
+
+#### Metrics Evaluated
+The following metrics are used to assess the chatbot's performance:
+- **Context Precision**: Measures whether the retrieved documents are relevant to the query.
+- **Recall**: Measures whether all relevant documents are retrieved.
+- **Response Relevance**: Measures the alignment between the generated response and the ground truth.
+
+### Architectures for Evaluation
+We have developed and named four architectures to measure performance and improve the chatbot's effectiveness:
+1. **Basic RAG**: The simplest implementation of a RAG pipeline.
+2. **Advanced Document Splitting RAG**: Incorporates optimized document chunking strategies.
+3. **Hybrid Search RAG**: Combines vector search with traditional keyword-based search.
+4. **Advanced Document Splitting and Hybrid Search RAG**: Integrates advanced document splitting with hybrid search for maximum performance.
+
 
 
 ### Architectures
