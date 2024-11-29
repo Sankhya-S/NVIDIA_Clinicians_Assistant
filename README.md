@@ -25,15 +25,20 @@ The MIMIC-IV-Note dataset is a collection of deidentified free-text clinical not
 
 The data is sourced from the Beth Israel Deaconess Medical Center in Boston, MA, USA, and all notes have undergone deidentification under the Health Insurance Portability and Accountability Act (HIPAA) Safe Harbor provision.
 
-
-
 ## Technologies Used
 
 - **NVIDIA Embeddings**: Utilizes `nvidia/nv-embedqa-e5-v5` for embedding text.
 - **Milvus Vector Store**: Uses Milvus to store document embeddings, enabling efficient retrieval for question answering.
-- **Chat Model**: Uses `meta/llama-3.1-8b-instruct` to generate answers based on retrieved document content.
+- **Chat Model**: Uses `meta/llama-3.1-70b-instruct` to generate answers based on retrieved document content.
+
+
 
 ## Evaluating Performance
+
+
+### Architectures
+
+
 
 
 ## Setup Steps
