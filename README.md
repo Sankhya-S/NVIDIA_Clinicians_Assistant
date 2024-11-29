@@ -14,7 +14,18 @@ This project is an AI-powered virtual "clinical assistant" that leverages a Retr
    
 2. Summarizing Health History: It should summarize the patient's health history, emphasizing recent reports while understanding medical terminology and temporal effects.
 
-## Training Data
+### MIMIC-IV-Note Dataset
+[Visit the MIMIC-IV Clinical Database](https://physionet.org/content/mimic-iv-note/2.2/)
+
+The MIMIC-IV-Note dataset is a collection of deidentified free-text clinical notes linked to the MIMIC-IV clinical database. It is designed to advance research in clinical natural language processing (NLP) by addressing the scarcity of large-scale, open-access clinical text datasets.
+
+#### This dataset includes:
+- **331,794 deidentified discharge summaries** from **145,915 patients** admitted to the hospital and emergency department.
+- **2,321,355 deidentified radiology reports** for **237,427 patients**.
+
+The data is sourced from the Beth Israel Deaconess Medical Center in Boston, MA, USA, and all notes have undergone deidentification under the Health Insurance Portability and Accountability Act (HIPAA) Safe Harbor provision.
+
+
 
 ## Technologies Used
 
