@@ -61,16 +61,20 @@ We have developed and named four architectures to measure performance and improv
 ### Architectures
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
 
-#### Why?
+#### Key Features:
 
 
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADParch.png)
 
+#### Key Features:
 
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Hybrid.png)
 
+#### Key Features:
 
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADP-Hybrid.png)
+
+#### Key Features:
 
 ## Setup Steps
 
