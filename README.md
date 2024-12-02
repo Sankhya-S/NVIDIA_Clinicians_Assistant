@@ -2,7 +2,7 @@
 
 
 # NVIDIA Clinicians Assistant
-By Margo Kim, Sankhya Sivakumar, Brandon Xa & Sarah Auch
+By Margo Kim, Sankhya Sivakumar, Brandon Ma & Sarah Auch
 ## Background
 Healthcare professionals often face the challenge of preparing for patient meetings with minimal time, sometimes as little as 10 minutes. This limited preparation time can make it difficult to review and understand a patient's medical history thoroughly. However, the advancement of large language models (LLMs) and generative language models offers a promising solution to this issue.
 
