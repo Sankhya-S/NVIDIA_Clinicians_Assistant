@@ -56,7 +56,7 @@ We have developed and named four architectures to measure performance and improv
 3. **Hybrid Search RAG**: Combines vector search with traditional keyword-based search.
 4. **Advanced Document Splitting and Hybrid Search RAG**: Integrates advanced document splitting with hybrid search for maximum performance.
 
-
+### Knowledge Graph for Test Set Questions
 
 ### Architectures
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
