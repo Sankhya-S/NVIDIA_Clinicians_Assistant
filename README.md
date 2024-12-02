@@ -1,5 +1,5 @@
 ![NVIDID_Clinicians_Assistant](Image_Folder/Header_3.png)
-
+By Margo Kim, Sankhya Sivakumar, Brandon Xa & Sarah Auch
 
 # NVIDIA Clinicians Assistant
 
