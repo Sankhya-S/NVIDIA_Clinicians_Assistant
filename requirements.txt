@@ -1,11 +1,10 @@
-# frontend==0.0.3
 langchain==0.3.4
 langchain-core==0.3.12
 langchain-nvidia-ai-endpoints==0.3.1
 langchain-milvus==0.1.6
 pymilvus==2.4.8
 tools==0.1.9
-# PyMuPDF==1.24.12
-# fitz==0.0.1.dev2
 pyyaml==6.0.2
 PyPDF2==3.0.1
+streamlit
+scikit-learn
