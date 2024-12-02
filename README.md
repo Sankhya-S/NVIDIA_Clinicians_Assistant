@@ -29,8 +29,7 @@ The data is sourced from the Beth Israel Deaconess Medical Center in Boston, MA,
 
 - **NVIDIA Embeddings**: Utilizes `nvidia/nv-embedqa-e5-v5` for embedding text.
 - **Milvus Vector Store**: Uses Milvus to store document embeddings, enabling efficient retrieval for question answering.
-- **Chat Model**: Uses `meta/llama-3.1-70b-instruct` to generate answers based on retrieved document content.
-
+- **Chat Model**: Uses `meta/Llama 3.1 70b nemotron` to generate answers based on retrieved document content.
 
 
 ## Evaluation Using Ragas
