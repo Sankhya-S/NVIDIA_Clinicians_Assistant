@@ -59,7 +59,7 @@ We have developed and named four architectures to measure performance and improv
 
 
 ### Architectures
-![NVIDID_Clinicians_Assistant](Image_Folder/RAg-Basic.png)
+![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
 
 
 
