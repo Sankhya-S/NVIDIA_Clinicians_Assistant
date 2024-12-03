@@ -93,10 +93,8 @@ First true initializes the Milvus database.
 Second true starts the NVIDIA Embedding Model service.
 Third true starts the NVIDIA Chat Model service.
 
-### 3. Upload PDF Documents: 
-Place the PDF documents you wish to process in the `./MIMIC_notes_PDF/ ` folder
 
-### 4. Run the pipeline
+### 3. Run the pipeline
 
 ```bash
 python basic_RAG.py
