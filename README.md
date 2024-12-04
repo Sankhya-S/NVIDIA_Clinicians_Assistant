@@ -126,7 +126,7 @@ Third true starts the NVIDIA Chat Model service.
 python basic_RAG.py
 ```
 
-## Future Impact & Improvments
+## Future Impact & Improvements
 
 ### What is the impact of Clinicians Assistant?
 
