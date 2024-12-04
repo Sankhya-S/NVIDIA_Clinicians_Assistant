@@ -92,10 +92,14 @@ Strategically chunking the documents and storing the subheadings in the database
 **Reasoning:**
 Sparse search ensures high precision by matching exact terms, which is critical for queries with specific keywords. Dense search improves recall by identifying semantically related documents, even when there’s no direct keyword overlap. The results from both searches are combined using a scoring mechanism, where the relevance scores from sparse and dense searches are weighted and aggregated.
 
-
+**Advanced Document Processing & Hybid Search RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADP-Hybrid.png)
 
 #### Key Features:
+- Combines document processing from the Advanced Document Processing RAG Architecture with Hybrid Search from the Hybrid Search RAG Architecture.
+
+**Reasoning:**
+This architecture provides the most contextual information possible to the LLM by leveraging Advanced Document Processing and Hybrid Search, which ensures both precise keyword matching and semantic understanding for improved retrieval accuracy.
 
 ## Setup Steps
 
