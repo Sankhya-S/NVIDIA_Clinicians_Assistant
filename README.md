@@ -59,6 +59,7 @@ We have developed and named four architectures to measure performance and improv
 
 ### Architectures
 
+**Basic RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
 #### Key Features:
 
@@ -68,13 +69,29 @@ We have developed and named four architectures to measure performance and improv
 **Reasoning:**
 This is the first version created based on a prototype provided to us by our NVIDIA partners. The base model adds metadata to enhance the relevance of the document chunks.
 
+**Advanced Document Processing RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADParch.png)
 
 #### Key Features:
 
+- An LLM is used to extract subheadings from the documents
+- Another call is made to extract content based on the subheadings, then chunk the extracted content into 500-word segments with a 50-word overlap. The chunked documents, along with their subheadings and metadata, are stored to the Milvus database.
+
+**Reasoning:**
+Strategically chunking the documents and storing the subheadings in the database provides the LLM with more contextually relevant information.
+
+**Hybrid Search RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Hybrid.png)
 
 #### Key Features:
+- Documents are chunked with a maximum of 500 words, using a 50-word overlap between chunks
+- Metadata, such as the date of entry, is stored in the Milvus database
+- An additional layer is added to the basic RAG architecture, called Hybrid Search
+- Hybrid Search uses both dense and sparse search techniques
+
+**Reasoning:**
+Sparse search ensures high precision by matching exact terms, which is critical for queries with specific keywords. Dense search improves recall by identifying semantically related documents, even when there’s no direct keyword overlap. The results from both searches are combined using a scoring mechanism, where the relevance scores from sparse and dense searches are weighted and aggregated.
+
 
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADP-Hybrid.png)
 
