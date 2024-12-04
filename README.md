@@ -62,6 +62,11 @@ We have developed and named four architectures to measure performance and improv
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
 #### Key Features:
 
+- Documents are chunked with a maximum of 500 words, using a 50-word overlap between chunks
+- Metadata, such as the date of entry, is stored in the Milvus database
+
+- **Reasoning:**
+This is the first version created based on a prototype provided to us by our NVIDIA partners. The base model adds metadata to enhance the relevance of the document chunks.
 
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADParch.png)
 
