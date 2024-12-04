@@ -124,3 +124,19 @@ Third true starts the NVIDIA Chat Model service.
 ```bash
 python basic_RAG.py
 ```
+
+## Future Impact & Improvments
+
+### What is the impact of Clinicians Assistant?
+
+1.  Hospital data is increasingly becoming publicly available. This project demonstrates how de-identified hospital data can be used for good by enabling better insights, improving decision-making, and supporting patient care while maintaining privacy and compliance with regulations.
+   
+2.  This project showcases different variations of RAG Architecture designed to enhance performance. It aims to inspire others to build upon these architectures or adapt them for applications in other fields, fostering innovation and broadening their impact across diverse domains.
+
+### What is the Next Step?
+
+1. The notes documents are just one half of the puzzle, as information is also stored in tabular data, such as gender, age, and readings from medical devices that capture data every minute. The goal of this project is to generate responses that incorporate information from both the notes documents and the tabular data. This integration allows users to access the maximum amount of information at their fingertips.
+
+2. We are also interested in adding another layer to the current architectures called ReRank, specifically 'rerank-qa-mistral-4b'. This GPU-accelerated model is optimized to provide a probability score indicating whether a given passage contains the necessary information to answer a question effectively.
+
+
