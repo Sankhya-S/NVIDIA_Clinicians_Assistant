@@ -126,6 +126,9 @@ Third true starts the NVIDIA Chat Model service.
 python basic_RAG.py
 ```
 
+
+
+
 ## Future Impact & Improvements
 
 ### What is the impact of Clinicians Assistant?
@@ -141,6 +144,11 @@ python basic_RAG.py
 2. We are also interested in adding another layer to the current architectures called ReRank, specifically `rerank-qa-mistral-4b`. This GPU-accelerated model is optimized to provide a probability score indicating whether a given passage contains the necessary information to answer a question effectively.
 
 ## Sources:
+https://physionet.org/content/mimic-iv-note/2.2/
+
+### Permissions Needed: 
+
+
 
 
 
