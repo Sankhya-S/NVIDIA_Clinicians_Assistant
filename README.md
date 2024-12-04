@@ -140,4 +140,7 @@ python basic_RAG.py
 
 2. We are also interested in adding another layer to the current architectures called ReRank, specifically `rerank-qa-mistral-4b`. This GPU-accelerated model is optimized to provide a probability score indicating whether a given passage contains the necessary information to answer a question effectively.
 
+## Sources:
+
+
 
