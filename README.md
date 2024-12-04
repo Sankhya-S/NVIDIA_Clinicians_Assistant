@@ -71,6 +71,7 @@ This is the first version created based on a prototype provided to us by our NVI
 
 **Advanced Document Processing RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADParch.png)
+![NVIDID_Clinicians_Assistant](Image_Folder/ADP.png)
 
 #### Key Features:
 
