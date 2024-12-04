@@ -58,7 +58,7 @@ We have developed and named four architectures to measure performance and improv
 ### Knowledge Graph for Test Set Questions
 
 ### Architectures
-![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
+
 
 #### Key Features:
 
