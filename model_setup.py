@@ -36,11 +36,13 @@ def setup_chat_model():
     """Sets up NVIDIA chat completion model."""
     chat_model = ChatNVIDIA(
         model_name="meta/llama-3.1-nemotron-70b-instruct:latest",
-        base_url="http://localhost:8002",
+        base_url="http://localhost:8000",
+        max_tokens = 4096,
         temperature=0.1,  # Lower temperature for more focused responses
         model_kwargs={
             "do_sample": True,
-            "top_p": 0.9
+            "top_p": 0.9,
+            "max_tokens_limit": 4096
         }  
     )
     return chat_model
