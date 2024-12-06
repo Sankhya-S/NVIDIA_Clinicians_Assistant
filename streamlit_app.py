@@ -6,7 +6,7 @@ import time
 import json
 
 # Import your RAG processor
-from basic_RAG import RAGProcessor
+from RAG_implementation import RAGProcessor
 
 class StreamlitRAGInterface:
     def __init__(self):
