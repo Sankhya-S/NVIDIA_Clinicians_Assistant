@@ -24,7 +24,6 @@ This project is an AI-powered virtual "clinical assistant" that leverages a Retr
 - Rapid patient history review
 - Medical document Q&A
 - Clinical history summarization
-- Clinical decision support assistance
 
 ### Dataset
 - **Source**: [Visit the MIMIC-IV Clinical Database](https://physionet.org/content/mimic-iv-note/2.2/)
