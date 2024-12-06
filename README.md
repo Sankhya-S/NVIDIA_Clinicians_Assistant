@@ -161,8 +161,10 @@ streamlit run streamlit_app.py
 ### What is the Next Step?
 
 1. The notes documents are just one half of the puzzle, as information is also stored in tabular data, such as gender, age, and readings from medical devices that capture data every minute. The goal of this project is to generate responses that incorporate information from both the notes documents and the tabular data. This integration allows users to access the maximum amount of information at their fingertips.
+   
+2. As we are surprised by our evaluation results, we plan to examine the metrics for other datasets, such as those from other patients or radiology notes. This will help us feel more confident in our evaluation technique.
 
-2. We are also interested in adding another layer to the current architectures called ReRank, specifically `rerank-qa-mistral-4b`. This GPU-accelerated model is optimized to provide a probability score indicating whether a given passage contains the necessary information to answer a question effectively.
+3. We are also interested in adding another layer to the current architectures called ReRank, specifically `rerank-qa-mistral-4b`. This GPU-accelerated model is optimized to provide a probability score indicating whether a given passage contains the necessary information to answer a question effectively.
 
 ## Sources:
 
