@@ -178,7 +178,7 @@ streamlit run streamlit_app.py
 
 ### Permissions Needed: 
 
-https://mimic.mit.edu/docs/gettingstarted/
+A guide to gaining access to the MIMIC data used in this project is available here:  [Link](https://mimic.mit.edu/docs/gettingstarted/)
 
 
 
