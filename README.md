@@ -1,5 +1,4 @@
 ![NVIDID_Clinicians_Assistant](Image_Folder/Header_3.png)
-Image Produced with the Help of ChatGPT
 
 # NVIDIA Clinicians Assistant
 By Margo Kim, Sankhya Sivakumar, Brandon Ma & Sarah Auch
