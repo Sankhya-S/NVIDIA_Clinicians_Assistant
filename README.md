@@ -119,10 +119,10 @@ Second true starts the NVIDIA Embedding Model service.
 Third true starts the NVIDIA Chat Model service.
 
 
-### 3. Run the pipeline
+### 3. Run the Streamlit app
 
 ```bash
-python basic_RAG.py
+streamlit run streamlit_app.py
 ```
 
 
