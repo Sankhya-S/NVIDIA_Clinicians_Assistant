@@ -170,6 +170,7 @@ https://docs.ragas.io/en/latest/concepts/metrics/available_metrics/context_preci
 https://docs.ragas.io/en/latest/concepts/metrics/available_metrics/answer_relevance/#
 https://docs.ragas.io/en/stable/
 
+“The High-Performance Vector Database Built for Scale.” Milvus, Milvus, 2024, milvus.io/. 
 “Nvidia/Llama-3.1-Nemotron-70b-Instruct.” NVIDIA, NVIDIA Corporation, 2024, build.nvidia.com/nvidia/llama-3_1-nemotron-70b-instruct. 
 “Nvidia/Nv-Embedqa-E5-V5.” NVIDIA, NVIDIA Corporation, 2024, build.nvidia.com/nvidia/nv-embedqa-e5-v5. 
 
