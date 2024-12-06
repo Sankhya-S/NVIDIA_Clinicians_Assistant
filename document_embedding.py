@@ -84,7 +84,7 @@ def save_basic_chunks(chunks: List[Dict], embedding_model, collection_name: str 
     """Save chunks with just content and embeddings."""
     print(f"\nDEBUG: Starting save_basic_chunks with {len(chunks)} chunks")
     
-    documents = chunks_to_documents(chunks, include_metadata=False)
+    documents = chunks_to_documents(chunks, include_metadata=True)
     print(f"\nDEBUG: Converted to {len(documents)} documents")
     
     try:
@@ -102,10 +102,10 @@ def save_basic_chunks(chunks: List[Dict], embedding_model, collection_name: str 
 
 
 class HybridSearchWrapper:
-    def __init__(self, vectorstore, keyword_weight: float = 0.4):
+    def __init__(self, vectorstore, keyword_weight: float = 0.3):
         self.vectorstore = vectorstore
         self.keyword_weight = keyword_weight
-        self.k = 4
+        self.k = 20
 
     def hybrid_search(self, query: str, k: int = None) -> List[Tuple[Document, float]]:
         """Perform hybrid search with improved keyword matching."""
@@ -154,7 +154,7 @@ class HybridSearchWrapper:
 
     def as_retriever(self, **kwargs):
         """Retriever interface compatibility."""
-        self.k = kwargs.get('search_kwargs', {}).get('k', 4)
+        self.k = kwargs.get('search_kwargs', {}).get('k', 20)
         return self
     
 
