@@ -100,7 +100,7 @@ This architecture provides the most contextual information possible to the LLM b
 Ragas is an open-source library designed for evaluating Large Language Model (LLM) applications, specifically **Retrieval Augmented Generation (RAG)** pipelines. This project uses Ragas to assess the performance of our clinical assistant chatbot and iteratively improve its architecture.
 
 ### Knowledge Graph for Test Set Questions
-
+![NVIDID_Clinicians_Assistant](Image_Folder/KG_Network.png)
 
 ### Evaluation Workflow
 Ragas allows us to:
