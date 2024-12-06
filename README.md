@@ -168,6 +168,7 @@ streamlit run streamlit_app.py
 https://physionet.org/content/mimic-iv-note/2.2/
 https://docs.ragas.io/en/latest/concepts/metrics/available_metrics/context_precision/
 https://docs.ragas.io/en/latest/concepts/metrics/available_metrics/answer_relevance/#
+https://docs.ragas.io/en/stable/
 
 ### Permissions Needed: 
 
