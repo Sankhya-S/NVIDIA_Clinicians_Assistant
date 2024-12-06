@@ -167,6 +167,8 @@ https://physionet.org/content/mimic-iv-note/2.2/
 
 ### Permissions Needed: 
 
+https://mimic.mit.edu/docs/gettingstarted/
+
 
 
 
