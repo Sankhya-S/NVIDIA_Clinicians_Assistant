@@ -70,7 +70,7 @@ We have developed and named four architectures to measure performance and improv
 4. **Advanced Document Splitting and Hybrid Search RAG**: Integrates advanced document splitting with hybrid search for maximum performance.
 
 ### Evaluation Results
-![RAGAS_Evaluation](Image_Folder/RAG_eval.png)
+![RAGAS_Evaluation](Image_Folder/RAG_evals.png)
 - Basic RAG with Advanced Document Processing achieved the highest context precision (0.82) but lower response relevancy (0.57)
 - Basic RAG showed the best balance with good context precision (0.74) and highest response relevancy (0.64)
 - Hybrid Search performed well with context precision of 0.76 and response relevancy of 0.62
