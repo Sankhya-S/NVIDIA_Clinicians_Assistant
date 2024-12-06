@@ -71,10 +71,10 @@ We have developed and named four architectures to measure performance and improv
 
 ### Evaluation Results
 ![RAGAS_Evaluation](Image_Folder/RAG_evals.png)
-- Basic RAG with Advanced Document Processing achieved the highest context precision (0.82) but lower response relevancy (0.57)
+- Advanced Document Processing RAG achieved the highest context precision (0.82) but lower response relevancy (0.57)
 - Basic RAG showed the best balance with good context precision (0.74) and highest response relevancy (0.64)
-- Hybrid Search performed well with context precision of 0.76 and response relevancy of 0.62
-- Hybrid Search with Advanced Document Processing maintained strong context precision (0.78) but showed lower response relevancy (0.57)
+- Hybrid Search RAG performed well with context precision of 0.76 and response relevancy of 0.62
+- Advanced Document Processing & Hybrid Search RAG maintained strong context precision (0.78) but showed lower response relevancy (0.57)
 
 ### Architectures
 
