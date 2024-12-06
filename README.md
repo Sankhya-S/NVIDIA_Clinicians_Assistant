@@ -44,9 +44,8 @@ Ragas allows us to:
 
 #### Metrics Evaluated
 The following metrics are used to assess the chatbot's performance:
-- **Context Precision**: Measures whether the retrieved documents are relevant to the query.
-- **Recall**: Measures whether all relevant documents are retrieved.
-- **Response Relevance**: Measures the alignment between the generated response and the ground truth.
+- **Context Precision**: Evaluates how much of the retrieved context was actually relevant and necessary to answer the question by comparing it against a reference answer.
+- **Response Relevance**: Measures whether the generated response actually answers the given question, regardless of whether it's factual or faithful to the context. It's purely about relevance to the query.
 
 ### Architectures for Evaluation
 We have developed and named four architectures to measure performance and improve the chatbot's effectiveness:
