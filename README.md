@@ -41,42 +41,7 @@ The data is sourced from the Beth Israel Deaconess Medical Center in Boston, MA,
 - PhysioNet credentials
 - MIMIC-IV training completion
 - Data use agreement
-
-
-## Evaluation Using Ragas
-
-### Overview
-Ragas is an open-source library designed for evaluating Large Language Model (LLM) applications, specifically **Retrieval Augmented Generation (RAG)** pipelines. This project uses Ragas to assess the performance of our clinical assistant chatbot and iteratively improve its architecture.
-
-### Knowledge Graph for Test Set Questions
-
-
-### Evaluation Workflow
-Ragas allows us to:
-1. Generate a test set of queries.
-2. Evaluate pipeline performance using the `evaluate_pipeline` function and a set of metrics.
-3. Compare answers to test set queries against the ground truth.
-
-#### Metrics Evaluated
-The following metrics are used to assess the chatbot's performance:
-- **Context Precision**: Evaluates how much of the retrieved context was actually relevant and necessary to answer the question by comparing it against a reference answer.
-- **Response Relevance**: Measures whether the generated response actually answers the given question, regardless of whether it's factual or faithful to the context. It's purely about relevance to the query. It assigns lower scores to incomplete or redundant answers and higher scores to highly relevant responses. The metric is computed using three elements: the user_input, the retrieved_contexts, and the response.
-
-### Architectures for Evaluation
-We have developed and named four architectures to measure performance and improve the chatbot's effectiveness:
-1. **Basic RAG**: The simplest implementation of a RAG pipeline.
-2. **Advanced Document Splitting RAG**: Incorporates optimized document chunking strategies.
-3. **Hybrid Search RAG**: Combines vector search with traditional keyword-based search.
-4. **Advanced Document Splitting and Hybrid Search RAG**: Integrates advanced document splitting with hybrid search for maximum performance.
-
-### Evaluation Results
-![RAGAS_Evaluation](Image_Folder/RAG_evals.png)
-- Advanced Document Processing RAG achieved the highest context precision (0.82) but lower response relevancy (0.57)
-- Basic RAG showed the best balance with good context precision (0.74) and highest response relevancy (0.64)
-- Hybrid Search RAG performed well with context precision of 0.76 and response relevancy of 0.62
-- Advanced Document Processing & Hybrid Search RAG maintained strong context precision (0.78) but showed lower response relevancy (0.57)
-
-### Architectures
+## Architectures
 
 **Basic RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
@@ -120,6 +85,41 @@ Sparse search ensures high precision by matching exact terms, which is critical 
 
 **Reasoning:**
 This architecture provides the most contextual information possible to the LLM by leveraging Advanced Document Processing and Hybrid Search, which ensures both precise keyword matching and semantic understanding for improved retrieval accuracy.
+
+## Evaluation Using Ragas
+
+### Overview
+Ragas is an open-source library designed for evaluating Large Language Model (LLM) applications, specifically **Retrieval Augmented Generation (RAG)** pipelines. This project uses Ragas to assess the performance of our clinical assistant chatbot and iteratively improve its architecture.
+
+### Knowledge Graph for Test Set Questions
+
+
+### Evaluation Workflow
+Ragas allows us to:
+1. Generate a test set of queries.
+2. Evaluate pipeline performance using the `evaluate_pipeline` function and a set of metrics.
+3. Compare answers to test set queries against the ground truth.
+
+#### Metrics Evaluated
+The following metrics are used to assess the chatbot's performance:
+- **Context Precision**: Evaluates how much of the retrieved context was actually relevant and necessary to answer the question by comparing it against a reference answer.
+- **Response Relevance**: Measures whether the generated response actually answers the given question, regardless of whether it's factual or faithful to the context. It's purely about relevance to the query. It assigns lower scores to incomplete or redundant answers and higher scores to highly relevant responses. The metric is computed using three elements: the user_input, the retrieved_contexts, and the response.
+
+### Architectures for Evaluation
+We have developed and named four architectures to measure performance and improve the chatbot's effectiveness:
+1. **Basic RAG**: The simplest implementation of a RAG pipeline.
+2. **Advanced Document Splitting RAG**: Incorporates optimized document chunking strategies.
+3. **Hybrid Search RAG**: Combines vector search with traditional keyword-based search.
+4. **Advanced Document Splitting and Hybrid Search RAG**: Integrates advanced document splitting with hybrid search for maximum performance.
+
+### Evaluation Results
+![RAGAS_Evaluation](Image_Folder/RAG_evals.png)
+- Advanced Document Processing RAG achieved the highest context precision (0.82) but lower response relevancy (0.57)
+- Basic RAG showed the best balance with good context precision (0.74) and highest response relevancy (0.64)
+- Hybrid Search RAG performed well with context precision of 0.76 and response relevancy of 0.62
+- Advanced Document Processing & Hybrid Search RAG maintained strong context precision (0.78) but showed lower response relevancy (0.57)
+
+
 
 ## Setup Steps
 
