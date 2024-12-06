@@ -13,8 +13,21 @@ This project is an AI-powered virtual "clinical assistant" that leverages a Retr
    
 2. Summarizing Health History: It should summarize the patient's health history, emphasizing recent reports while understanding medical terminology and temporal effects.
 
-### MIMIC-IV-Note Dataset
-[Visit the MIMIC-IV Clinical Database](https://physionet.org/content/mimic-iv-note/2.2/)
+## Model and Dataset Card
+### Models
+
+- **NVIDIA Embeddings**: Utilizes `nvidia/nv-embedqa-e5-v5` for embedding text.
+- **Milvus Vector Store**: Uses Milvus to store document embeddings, enabling efficient retrieval for question answering.
+- **Chat Model**: Uses `meta/Llama 3.1 70b nemotron` to generate answers based on retrieved document content.
+
+#### Primary Use Cases:
+- Rapid patient history review
+- Medical document Q&A
+- Clinical history summarization
+- Clinical decision support assistance
+
+### Dataset
+- **Source**: [Visit the MIMIC-IV Clinical Database](https://physionet.org/content/mimic-iv-note/2.2/)
 
 The MIMIC-IV-Note dataset is a collection of deidentified free-text clinical notes linked to the MIMIC-IV clinical database. It is designed to advance research in clinical natural language processing (NLP) by addressing the scarcity of large-scale, open-access clinical text datasets.
 
@@ -24,15 +37,13 @@ The MIMIC-IV-Note dataset is a collection of deidentified free-text clinical not
 
 The data is sourced from the Beth Israel Deaconess Medical Center in Boston, MA, USA, and all notes have undergone deidentification under the Health Insurance Portability and Accountability Act (HIPAA) Safe Harbor provision.
 
-## Technologies Used
-
-- **NVIDIA Embeddings**: Utilizes `nvidia/nv-embedqa-e5-v5` for embedding text.
-- **Milvus Vector Store**: Uses Milvus to store document embeddings, enabling efficient retrieval for question answering.
-- **Chat Model**: Uses `meta/Llama 3.1 70b nemotron` to generate answers based on retrieved document content.
+#### Access Requirements:
+- PhysioNet credentials
+- MIMIC-IV training completion
+- Data use agreement
 
 
 ## Evaluation Using Ragas
-
 
 ### Overview
 Ragas is an open-source library designed for evaluating Large Language Model (LLM) applications, specifically **Retrieval Augmented Generation (RAG)** pipelines. This project uses Ragas to assess the performance of our clinical assistant chatbot and iteratively improve its architecture.
