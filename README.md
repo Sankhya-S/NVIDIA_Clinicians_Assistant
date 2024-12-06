@@ -33,8 +33,12 @@ The data is sourced from the Beth Israel Deaconess Medical Center in Boston, MA,
 
 ## Evaluation Using Ragas
 
+
 ### Overview
 Ragas is an open-source library designed for evaluating Large Language Model (LLM) applications, specifically **Retrieval Augmented Generation (RAG)** pipelines. This project uses Ragas to assess the performance of our clinical assistant chatbot and iteratively improve its architecture.
+
+### Knowledge Graph for Test Set Questions
+
 
 ### Evaluation Workflow
 Ragas allows us to:
@@ -54,7 +58,12 @@ We have developed and named four architectures to measure performance and improv
 3. **Hybrid Search RAG**: Combines vector search with traditional keyword-based search.
 4. **Advanced Document Splitting and Hybrid Search RAG**: Integrates advanced document splitting with hybrid search for maximum performance.
 
-### Knowledge Graph for Test Set Questions
+### Evaluation Results
+![RAGAS_Evaluation](Image_Folder/RAG_eval.png)
+- Basic RAG with Advanced Document Processing achieved the highest context precision (0.82) but lower response relevancy (0.57)
+- Basic RAG showed the best balance with good context precision (0.74) and highest response relevancy (0.64)
+- Hybrid Search performed well with context precision of 0.76 and response relevancy of 0.62
+- Hybrid Search with Advanced Document Processing maintained strong context precision (0.78) but showed lower response relevancy (0.57)
 
 ### Architectures
 
