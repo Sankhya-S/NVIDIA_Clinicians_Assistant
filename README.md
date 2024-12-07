@@ -228,7 +228,7 @@ streamlit run streamlit_app.py
 
 ### What is the impact of Clinicians Assistant?
 
-1.  Hospital data is increasingly becoming publicly available. This project demonstrates how de-identified hospital data can be used for good by enabling better insights, improving decision-making, and supporting patient care while maintaining privacy and compliance with regulations.
+1.  Hospital data is increasingly becoming publicly available. This project demonstrates how a AI powered chatbot can be used for good by enabling better insights, improving decision-making, and supporting patient care.
    
 2.  This project showcases different variations of RAG Architecture designed to enhance performance. It aims to inspire others to build upon these architectures or adapt them for applications in other fields, fostering innovation and broadening their impact across diverse domains.
 
