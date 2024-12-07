@@ -109,6 +109,7 @@ First, we extract and store four critical pieces of information:
 
 <img width="517" alt="image" src="https://github.com/user-attachments/assets/2b8b0495-fff0-40ed-934f-f4e3d02b065c">
 
+**How it works?**
 The entity_jaccard_similarity edge indicates how similar the two nodes are based on their shared entities, using the Jaccard similarity coefficient.
 
 <img width="745" alt="image" src="https://github.com/user-attachments/assets/d6b71a40-a7ff-4488-a4c1-54c72967a10c">
@@ -116,10 +117,18 @@ The entity_jaccard_similarity edge indicates how similar the two nodes are based
 - The sampling pool feature, which helps us maintain context accuracy
 - The persona system, which lets us tailor responses based on user expertise level
 
+<img width="915" alt="image" src="https://github.com/user-attachments/assets/816644ad-2c7a-4194-8605-7442f8f8e7e4">
 
+**Key Findings**
+A visualization appears to show a medical document network where:
 
+1. Medical documents (green nodes) are densely clustered in the center and highly interconnected
 
-![NVIDID_Clinicians_Assistant](Image_Folder/KG_Network.png)
+2. Metadata elements - both entities (blue) and themes (yellow) - are evenly distributed on the sides
+
+3. Documents show consistent connectivity levels and form natural groupings around related medical topics
+
+The overall structure suggests a well-organized, richly cross-referenced collection of medical documents
 
 ### Evaluation Workflow
 Ragas allows us to:
