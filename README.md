@@ -24,7 +24,6 @@ This project is an AI-powered virtual "clinical assistant" that leverages a Retr
 - Rapid patient history review
 - Medical document Q&A
 - Clinical history summarization
-- Clinical decision support assistance
 
 ### Dataset
 - **Source**: [Visit the MIMIC-IV Clinical Database](https://physionet.org/content/mimic-iv-note/2.2/)
@@ -41,26 +40,7 @@ The data is sourced from the Beth Israel Deaconess Medical Center in Boston, MA,
 - PhysioNet credentials
 - MIMIC-IV training completion
 - Data use agreement
-
-
-## Evaluation Using Ragas
-
-### Overview
-Ragas is an open-source library designed for evaluating Large Language Model (LLM) applications, specifically **Retrieval Augmented Generation (RAG)** pipelines. This project uses Ragas to assess the performance of our clinical assistant chatbot and iteratively improve its architecture.
-
-### Knowledge Graph for Test Set Questions
-
-
-### Evaluation Workflow
-Ragas allows us to:
-1. Generate a test set of queries.
-2. Evaluate pipeline performance using the `evaluate_pipeline` function and a set of metrics.
-3. Compare answers to test set queries against the ground truth.
-
-#### Metrics Evaluated
-The following metrics are used to assess the chatbot's performance:
-- **Context Precision**: Evaluates how much of the retrieved context was actually relevant and necessary to answer the question by comparing it against a reference answer.
-- **Response Relevance**: Measures whether the generated response actually answers the given question, regardless of whether it's factual or faithful to the context. It's purely about relevance to the query.
+## Architectures
 
 ### Architectures for Evaluation
 We have developed and named four architectures to measure performance and improve the chatbot's effectiveness:
@@ -69,14 +49,6 @@ We have developed and named four architectures to measure performance and improv
 3. **Hybrid Search RAG**: Combines vector search with traditional keyword-based search.
 4. **Advanced Document Splitting and Hybrid Search RAG**: Integrates advanced document splitting with hybrid search for maximum performance.
 
-### Evaluation Results
-![RAGAS_Evaluation](Image_Folder/RAG_eval.png)
-- Basic RAG with Advanced Document Processing achieved the highest context precision (0.82) but lower response relevancy (0.57)
-- Basic RAG showed the best balance with good context precision (0.74) and highest response relevancy (0.64)
-- Hybrid Search performed well with context precision of 0.76 and response relevancy of 0.62
-- Hybrid Search with Advanced Document Processing maintained strong context precision (0.78) but showed lower response relevancy (0.57)
-
-### Architectures
 
 **Basic RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
@@ -121,6 +93,110 @@ Sparse search ensures high precision by matching exact terms, which is critical 
 **Reasoning:**
 This architecture provides the most contextual information possible to the LLM by leveraging Advanced Document Processing and Hybrid Search, which ensures both precise keyword matching and semantic understanding for improved retrieval accuracy.
 
+## Evaluation Using Ragas
+
+### Overview
+Ragas is an open-source library designed for evaluating Large Language Model (LLM) applications, specifically **Retrieval Augmented Generation (RAG)** pipelines. This project uses Ragas to assess the performance of our clinical assistant chatbot and iteratively improve its architecture.
+
+### Knowledge Graph for Test Set Questions
+<img width="1173" alt="image" src="https://github.com/user-attachments/assets/5feff2e3-847c-44ac-bdb4-b674d3dc9610">
+
+First, we extract and store four critical pieces of information:
+- The raw content along with its embeddings
+- Key entities using our specialized entity extractor
+- Important topics that capture the document's themes
+- And a summary with its corresponding embedding
+
+<img width="517" alt="image" src="https://github.com/user-attachments/assets/2b8b0495-fff0-40ed-934f-f4e3d02b065c">
+
+**How it works?**
+The entity_jaccard_similarity edge indicates how similar the two nodes are based on their shared entities, using the Jaccard similarity coefficient.
+
+<img width="745" alt="image" src="https://github.com/user-attachments/assets/d6b71a40-a7ff-4488-a4c1-54c72967a10c">
+
+- The sampling pool feature, which helps us maintain context accuracy
+- The persona system, which lets us tailor responses based on user expertise level
+
+#### What Are Multi-hop Queries?
+
+Think of multi-hop queries as connecting the dots between different pieces of information across multiple documents. Instead of just getting an answer from a single source, we're building relationships between documents to create more sophisticated and nuanced queries.
+
+**The Process**
+
+Step 1: Document Loading
+
+Step 2: Creating the Knowledge Graph
+
+- We create a base knowledge graph where each document becomes a node.
+  
+Step 3: Setting Up Our Tools
+
+- An LLM (Large Language Model)
+  
+- An embedding model
+
+Step 4: Extractors and Relationship Builders
+
+We use four key tools:
+
+- A headline extractor to pull out important headers
+- A headline splitter to break documents into manageable chunks
+- A keyphrase extractor to identify important concepts
+- An Entitiy extractor to identify important entities mentioned in the document
+- An overlap score builder to create connections between documents
+
+Step 5: Configuring Personas
+
+To make our queries more realistic and targeted, we create personas.
+
+In our case, we have three different personas.
+
+- Clinical Care Coordinator
+- Medical Researcher
+- Healthcare Provider
+
+Step 6: Query Generation
+
+- Finding qualified pairs of nodes based on their relationships
+- Matching keyphrases with our personas
+- Creating combinations of nodes, personas, and query styles
+- Sampling to get our final queries
+
+<img width="915" alt="image" src="https://github.com/user-attachments/assets/816644ad-2c7a-4194-8605-7442f8f8e7e4">
+
+**Key Findings**
+
+A visualization appears to show a medical document network where:
+
+1. Medical documents (green nodes) are densely clustered in the center and highly interconnected
+
+2. Metadata elements - both entities (blue) and themes (yellow) - are evenly distributed on the sides
+
+3. Documents show consistent connectivity levels and form natural groupings around related medical topics
+
+The overall structure suggests a well-organized, richly cross-referenced collection of medical documents
+
+### Evaluation Workflow
+Ragas allows us to:
+1. Generate a test set of queries.
+2. Evaluate pipeline performance using the `evaluate_pipeline` function and a set of metrics.
+3. Compare answers to test set queries against the ground truth.
+
+#### Metrics Evaluated
+The following metrics are used to assess the chatbot's performance:
+- **Context Precision**: Evaluates how much of the retrieved context was actually relevant and necessary to answer the question by comparing it against a reference answer.
+- **Response Relevance**: Measures whether the generated response actually answers the given question, regardless of whether it's factual or faithful to the context. It's purely about relevance to the query. It assigns lower scores to incomplete or redundant answers and higher scores to highly relevant responses. The metric is computed using three elements: the user_input, the retrieved_contexts, and the response.
+
+
+### Evaluation Results
+![RAGAS_Evaluation](Image_Folder/RAG_evals.png)
+- Advanced Document Processing RAG achieved the highest context precision (0.82) but lower response relevancy (0.57)
+- Basic RAG showed the best balance with good context precision (0.74) and highest response relevancy (0.64)
+- Hybrid Search RAG performed well with context precision of 0.76 and response relevancy of 0.62
+- Advanced Document Processing & Hybrid Search RAG maintained strong context precision (0.78) but showed lower response relevancy (0.57)
+
+
+
 ## Setup Steps
 
 Follow these steps to get the chatbot up and running in less than 5 minutes:
@@ -159,13 +235,28 @@ streamlit run streamlit_app.py
 ### What is the Next Step?
 
 1. The notes documents are just one half of the puzzle, as information is also stored in tabular data, such as gender, age, and readings from medical devices that capture data every minute. The goal of this project is to generate responses that incorporate information from both the notes documents and the tabular data. This integration allows users to access the maximum amount of information at their fingertips.
+   
+2. As we are surprised by our evaluation results, we plan to examine the metrics for other datasets, such as those from other patients or radiology notes. This will help us feel more confident in our evaluation technique.
 
-2. We are also interested in adding another layer to the current architectures called ReRank, specifically `rerank-qa-mistral-4b`. This GPU-accelerated model is optimized to provide a probability score indicating whether a given passage contains the necessary information to answer a question effectively.
+3. We are also interested in adding another layer to the current architectures called ReRank, specifically `rerank-qa-mistral-4b`. This GPU-accelerated model is optimized to provide a probability score indicating whether a given passage contains the necessary information to answer a question effectively.
 
 ## Sources:
-https://physionet.org/content/mimic-iv-note/2.2/
+
+ - “Context Precision.” Ragas, 1 Nov. 2024, docs.ragas.io/en/latest/concepts/metrics/available_metrics/context_precision/. 
+ - “The High-Performance Vector Database Built for Scale.” Milvus, Milvus, 2024, milvus.io/.
+ - “Introduction.” Ragas, 1 Nov. 2024, docs.ragas.io/en/stable/.
+ - Johnson, Alistair, et al. “MIMIC-IV-Note: Deidentified Free-Text Clinical Notes.” PhysioNet, National Institute of Biomedical Imaging and Bioengineering, 6 Jan. 2023,    physionet.org/content/mimic-iv-note/2.2/. 
+ - “Nvidia/Llama-3.1-Nemotron-70b-Instruct.” NVIDIA, NVIDIA Corporation, 2024, build.nvidia.com/nvidia/llama-3_1-nemotron-70b-instruct. 
+ - “Nvidia/Nv-Embedqa-E5-V5.” NVIDIA, NVIDIA Corporation, 2024, build.nvidia.com/nvidia/nv-embedqa-e5-v5.
+ - “Response Relevancy.” Ragas, 1 Nov. 2024, docs.ragas.io/en/latest/concepts/metrics/available_metrics/answer_relevance/#.
+ - Custom Multi-hop Query - Ragas. (n.d.). https://docs.ragas.io/en/stable/howtos/customizations/testgenerator/_testgen-customisation/
+
+
 
 ### Permissions Needed: 
+
+A guide to gaining access to the MIMIC data used in this project is available here:  [Link](https://mimic.mit.edu/docs/gettingstarted/)
+
 
 
 
