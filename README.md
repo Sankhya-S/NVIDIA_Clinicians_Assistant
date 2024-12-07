@@ -117,9 +117,55 @@ The entity_jaccard_similarity edge indicates how similar the two nodes are based
 - The sampling pool feature, which helps us maintain context accuracy
 - The persona system, which lets us tailor responses based on user expertise level
 
+#### What Are Multi-hop Queries?
+
+Think of multi-hop queries as connecting the dots between different pieces of information across multiple documents. Instead of just getting an answer from a single source, we're building relationships between documents to create more sophisticated and nuanced queries.
+
+**The Process**
+
+Step 1: Document Loading
+
+Step 2: Creating the Knowledge Graph
+
+- We create a base knowledge graph where each document becomes a node.
+  
+Step 3: Setting Up Our Tools
+
+- An LLM (Large Language Model)
+  
+- An embedding model
+
+Step 4: Extractors and Relationship Builders
+
+We use four key tools:
+
+- A headline extractor to pull out important headers
+- A headline splitter to break documents into manageable chunks
+- A keyphrase extractor to identify important concepts
+- An Entitiy extractor to identify important entities mentioned in the document
+- An overlap score builder to create connections between documents
+
+Step 5: Configuring Personas
+
+To make our queries more realistic and targeted, we create personas.
+
+In our case, we have three different personas.
+
+- Clinical Care Coordinator
+- Medical Researcher
+- Healthcare Provider
+
+Step 6: Query Generation
+
+- Finding qualified pairs of nodes based on their relationships
+- Matching keyphrases with our personas
+- Creating combinations of nodes, personas, and query styles
+- Sampling to get our final queries
+
 <img width="915" alt="image" src="https://github.com/user-attachments/assets/816644ad-2c7a-4194-8605-7442f8f8e7e4">
 
 **Key Findings**
+
 A visualization appears to show a medical document network where:
 
 1. Medical documents (green nodes) are densely clustered in the center and highly interconnected
@@ -202,7 +248,8 @@ streamlit run streamlit_app.py
  - Johnson, Alistair, et al. “MIMIC-IV-Note: Deidentified Free-Text Clinical Notes.” PhysioNet, National Institute of Biomedical Imaging and Bioengineering, 6 Jan. 2023,    physionet.org/content/mimic-iv-note/2.2/. 
  - “Nvidia/Llama-3.1-Nemotron-70b-Instruct.” NVIDIA, NVIDIA Corporation, 2024, build.nvidia.com/nvidia/llama-3_1-nemotron-70b-instruct. 
  - “Nvidia/Nv-Embedqa-E5-V5.” NVIDIA, NVIDIA Corporation, 2024, build.nvidia.com/nvidia/nv-embedqa-e5-v5.
- - “Response Relevancy.” Ragas, 1 Nov. 2024, docs.ragas.io/en/latest/concepts/metrics/available_metrics/answer_relevance/#. 
+ - “Response Relevancy.” Ragas, 1 Nov. 2024, docs.ragas.io/en/latest/concepts/metrics/available_metrics/answer_relevance/#.
+ - Custom Multi-hop Query - Ragas. (n.d.). https://docs.ragas.io/en/stable/howtos/customizations/testgenerator/_testgen-customisation/
 
 
 
