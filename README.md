@@ -99,6 +99,26 @@ This architecture provides the most contextual information possible to the LLM b
 Ragas is an open-source library designed for evaluating Large Language Model (LLM) applications, specifically **Retrieval Augmented Generation (RAG)** pipelines. This project uses Ragas to assess the performance of our clinical assistant chatbot and iteratively improve its architecture.
 
 ### Knowledge Graph for Test Set Questions
+<img width="1173" alt="image" src="https://github.com/user-attachments/assets/5feff2e3-847c-44ac-bdb4-b674d3dc9610">
+
+First, we extract and store four critical pieces of information:
+- The raw content along with its embeddings
+- Key entities using our specialized entity extractor
+- Important topics that capture the document's themes
+- And a summary with its corresponding embedding
+
+<img width="517" alt="image" src="https://github.com/user-attachments/assets/2b8b0495-fff0-40ed-934f-f4e3d02b065c">
+
+The entity_jaccard_similarity edge indicates how similar the two nodes are based on their shared entities, using the Jaccard similarity coefficient.
+
+<img width="745" alt="image" src="https://github.com/user-attachments/assets/d6b71a40-a7ff-4488-a4c1-54c72967a10c">
+
+- The sampling pool feature, which helps us maintain context accuracy
+- The persona system, which lets us tailor responses based on user expertise level
+
+
+
+
 ![NVIDID_Clinicians_Assistant](Image_Folder/KG_Network.png)
 
 ### Evaluation Workflow
