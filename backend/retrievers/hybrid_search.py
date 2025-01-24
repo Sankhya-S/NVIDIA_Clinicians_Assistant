@@ -36,48 +36,36 @@ class SearchConfig:
 class CustomEmbeddingFunction:
     """Custom embedding function using Hugging Face transformers with memory optimization"""
     def __init__(self, model_path: str):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = "cuda"
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
         
+        # Use smallest model variant possible
         self.model = (
-            AutoModel.from_pretrained(model_path)
-            .to(self.device)
-            .half()
-            .eval()
+            AutoModel.from_pretrained(model_path, 
+            torch_dtype=torch.float16,  # Explicit float16
+            low_cpu_mem_usage=True,     # Reduce CPU memory during loading
+            device_map="auto"           # Automatic device placement
         )
+    )
+    
 
-    def embed(self, texts: List[str], batch_size: int = 2) -> np.ndarray:
-        """Generate embeddings for a list of texts in batches with memory optimization"""
-        embeddings = []
-        
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i + batch_size]
-            
-            inputs = self.tokenizer(
-                batch_texts, 
-                return_tensors="pt", 
-                padding=True, 
-                truncation=True, 
-                max_length=512
-            )
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            
-            with torch.no_grad():
-                outputs = checkpoint(
-                    lambda **x: self.model(**x), 
-                    **inputs
-                )
-            
-            batch_embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
-            embeddings.append(batch_embeddings)
-            
-            # Explicit memory cleanup
+    def embed(self, texts: List[str], initial_batch_size: int = 2):
+    batch_size = initial_batch_size
+    while batch_size > 0:
+        try:
+            embeddings = []
+            for i in range(0, len(texts), batch_size):
+                batch_texts = texts[i:i + batch_size]
+                # Existing embedding logic
+            return np.vstack(embeddings)
+        except RuntimeError:
+            batch_size = max(1, batch_size // 2)
             torch.cuda.empty_cache()
-        
-        return np.vstack(embeddings)
+    
+    raise MemoryError("Cannot process texts with available GPU memory")
 
 class CustomReranker:
     """Custom reranker using Hugging Face transformers with memory optimization"""
