@@ -6,12 +6,10 @@ import torch
 from torch.utils.checkpoint import checkpoint
 from pymilvus import (
     Collection, FieldSchema, CollectionSchema, DataType,
-    utility, connections, AnnSearchRequest
+    utility, connections
 )
 from transformers import AutoTokenizer, AutoModel
 from langchain.schema import Document
-import requests
-response = requests.get("https://huggingface.co/BAAI/bge-m3/...", verify=False)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,28 +34,20 @@ class SearchConfig:
     consistency_level: str = "Strong"
 
 class CustomEmbeddingFunction:
-    """Custom embedding function using Hugging Face transformers with memory optimization"""
+    """Custom embedding function using Hugging Face transformers"""
     def __init__(self, model_path: str):
-        self.device = "cuda"
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
         self.model = AutoModel.from_pretrained(
             model_path,
             torch_dtype=torch.float16,
             low_cpu_mem_usage=True,
-            device_map="auto"
-        ).eval()
-
-        # Define embedding dimension
+        ).to(self.device).eval()
         self.dim = self.model.config.hidden_size
 
-    def embed(self, texts: List[str], initial_batch_size: int = 2) -> np.ndarray:
-        """Generate embeddings with dynamic batch size adjustment"""
+    def embed(self, texts: List[str], initial_batch_size: int = 2) -> Dict[str, np.ndarray]:
+        embeddings = {"dense": [], "sparse": []}
         batch_size = initial_batch_size
-        embeddings = []
 
         while batch_size > 0:
             try:
@@ -71,21 +61,19 @@ class CustomEmbeddingFunction:
                         max_length=512
                     )
                     inputs = {k: v.to(self.device) for k, v in inputs.items()}
-
                     with torch.no_grad():
                         outputs = self.model(**inputs)
-
-                    batch_embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
-                    embeddings.append(batch_embeddings)
-
-                return np.vstack(embeddings)
+                    batch_dense = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+                    embeddings["dense"].append(batch_dense)
+                embeddings["dense"] = np.vstack(embeddings["dense"])
+                embeddings["sparse"] = np.zeros((len(texts), self.dim))  # Placeholder
+                return embeddings
             except RuntimeError as e:
                 if "CUDA out of memory" in str(e):
                     batch_size = max(1, batch_size // 2)
                     torch.cuda.empty_cache()
                 else:
                     raise e
-
         raise MemoryError("Cannot process texts with available GPU memory")
 
 
