@@ -17,9 +17,23 @@ class EnhancedHybridSearchFAISS(EnhancedHybridSearch):
         
     def setup_faiss(self):
         """Initialize FAISS index for sparse vectors"""
-        print("DEBUG: Initializing FAISS index for sparse vectors...")
-        self.faiss_index = faiss.IndexFlatIP(250002)  
-        print("DEBUG: FAISS index initialized")
+        try:
+            print("DEBUG: Initializing FAISS index for sparse vectors...")
+            
+            # Example: Dynamic determination of sparse vector dimensionality
+            sparse_vector_dim = None
+            if self.faiss_mapping:
+                first_key = next(iter(self.faiss_mapping))
+                sparse_vector_dim = len(self.faiss_mapping[first_key])
+            else:
+                sparse_vector_dim = 768  # Default value if no data exists
+    
+            self.faiss_index = faiss.IndexFlatIP(sparse_vector_dim)
+            print(f"DEBUG: FAISS index initialized with dimension {sparse_vector_dim}")
+        except Exception as e:
+            logger.error(f"Error initializing FAISS: {str(e)}")
+            raise
+
 
     def insert_batch(self, batch_data: List[Dict]) -> bool:
         """Insert a batch of documents into both stores"""
