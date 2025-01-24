@@ -72,19 +72,16 @@ class EnhancedHybridSearchFAISS(EnhancedHybridSearch):
             logger.error(f"Error inserting batch: {str(e)}")
             return False
 
-    def hybrid_search(
-        self,
-        query: str,
-        filters: Optional[Dict[str, Any]] = None,
-        k: int = 10
-    ) -> List[RerankedResult]:
+    def hybrid_search(self, query: str, filters: Optional[Dict[str, Any]] = None, k: int = 10) -> List[RerankedResult]:
         """Perform hybrid search using both Milvus and FAISS"""
         try:
-            # Generate query embeddings
             print("\nDEBUG: Starting hybrid search...")
             print(f"DEBUG: Query: {query}")
-            query_embeddings = self.ef([query])
-            
+    
+            # Generate query embeddings
+            query_embeddings = self.ef.embed([query])
+            print(f"DEBUG: Query embeddings structure: {query_embeddings}")
+    
             # Search dense vectors in Milvus
             dense_results = self.collection.search(
                 data=[query_embeddings['dense'][0].tolist()],
@@ -94,37 +91,27 @@ class EnhancedHybridSearchFAISS(EnhancedHybridSearch):
                 output_fields=["content", "note_id", "hadm_id", "subject_id", "section"]
             )
             print(f"DEBUG: Found {len(dense_results[0])} dense vector matches")
-            
-            # Convert sparse vector for FAISS
-            sparse_vector = query_embeddings['sparse']
+    
+            # Process sparse vector for FAISS
+            sparse_vector = query_embeddings.get('sparse')
+            if sparse_vector is None or not isinstance(sparse_vector, np.ndarray):
+                raise ValueError("Sparse embedding is missing or invalid")
             if hasattr(sparse_vector, 'toarray'):
                 sparse_vector = sparse_vector.toarray()[0]
             sparse_vector = sparse_vector.astype('float32').reshape(1, -1)
-            
+    
             # Search sparse vectors in FAISS
             sparse_scores, sparse_indices = self.faiss_index.search(sparse_vector, k)
             print(f"DEBUG: Found {len(sparse_indices[0])} sparse vector matches")
-            
-            # Process and combine results
+    
+            # Combine results
             results = []
-            for dense_hit, (sparse_score, sparse_idx) in zip(
-                dense_results[0], 
-                zip(sparse_scores[0], sparse_indices[0])
-            ):
+            for dense_hit, (sparse_score, sparse_idx) in zip(dense_results[0], zip(sparse_scores[0], sparse_indices[0])):
                 dense_score = dense_hit.score
-                print(f"\nDEBUG: Processing result:")
-                print(f"DEBUG: Dense score: {dense_hit.score}")
-                print(f"DEBUG: Sparse score: {sparse_score}")
-                print(f"DEBUG: Content preview: {dense_hit.entity.get('content')[:100]}")
-                
-                
-                # Calculate combined score
                 final_score = (
                     self.config.dense_weight * dense_score +
                     self.config.sparse_weight * float(sparse_score)
                 )
-                
-                # Create document
                 document = Document(
                     page_content=dense_hit.entity.get('content'),
                     metadata={
@@ -134,17 +121,17 @@ class EnhancedHybridSearchFAISS(EnhancedHybridSearch):
                         'section': dense_hit.entity.get('section'),
                     }
                 )
-                
                 results.append(RerankedResult(
                     document=document,
                     dense_score=dense_score,
                     sparse_score=float(sparse_score),
-                    rerank_score=0.2,  # Could add reranking if needed
+                    rerank_score=0.2,
                     final_score=final_score
                 ))
             print(f"\nDEBUG: Final result count: {len(results)}")
             return self._apply_diversity_ranking(results, k)
-            
+    
         except Exception as e:
             logger.error(f"Search error: {str(e)}")
             raise
+    
