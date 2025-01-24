@@ -42,7 +42,9 @@ class EnhancedHybridSearch:
     
     def __init__(self, config: SearchConfig):
         self.config = config
+        model_path="./models/bge-m3-extracted"
         self.ef = BGEM3EmbeddingFunction(
+            model_path=model_path,
             use_fp16=True,
             device="cuda" if torch.cuda.is_available() else "cpu"
         )
