@@ -53,19 +53,19 @@ class CustomEmbeddingFunction:
     
 
     def embed(self, texts: List[str], initial_batch_size: int = 2):
-    batch_size = initial_batch_size
-    while batch_size > 0:
-        try:
-            embeddings = []
-            for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i:i + batch_size]
-                # Existing embedding logic
-            return np.vstack(embeddings)
-        except RuntimeError:
-            batch_size = max(1, batch_size // 2)
-            torch.cuda.empty_cache()
-    
-    raise MemoryError("Cannot process texts with available GPU memory")
+        batch_size = initial_batch_size
+        while batch_size > 0:
+            try:
+                embeddings = []
+                for i in range(0, len(texts), batch_size):
+                    batch_texts = texts[i:i + batch_size]
+                    # Existing embedding logic
+                return np.vstack(embeddings)
+            except RuntimeError:
+                batch_size = max(1, batch_size // 2)
+                torch.cuda.empty_cache()
+        
+        raise MemoryError("Cannot process texts with available GPU memory")
 
 class CustomReranker:
     """Custom reranker using Hugging Face transformers with memory optimization"""
