@@ -38,10 +38,10 @@ class SearchConfig:
 
 class CustomEmbeddingFunction:
     """Custom embedding function using Hugging Face transformers"""
-    def __init__(self, model_path: str, device: str = "cpu"):
+    def __init__(self, model_path: str):
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.model = AutoModel.from_pretrained(model_path)
-        self.device = device
+        self.device = "cuda"
         self.model.to(self.device)
 
     def embed(self, texts: List[str]) -> np.ndarray:
@@ -55,10 +55,10 @@ class CustomEmbeddingFunction:
 
 class CustomReranker:
     """Custom reranker using Hugging Face transformers"""
-    def __init__(self, model_path: str, device: str = "cpu"):
+    def __init__(self, model_path: str):
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.model = AutoModel.from_pretrained(model_path)
-        self.device = device
+        self.device = "cuda"
         self.model.to(self.device)
 
     def rerank(self, candidates: List[Dict], query: str) -> List[Dict]:
@@ -88,8 +88,8 @@ class EnhancedHybridSearch:
     def __init__(self, config: SearchConfig):
         self.config = config
         model_path="../models/bge-m3-extracted"
-        self.ef = CustomEmbeddingFunction(model_path=model_path, device="cuda" if torch.cuda.is_available() else "cpu")
-        self.reranker = CustomReranker(model_path=model_path, device="cuda" if torch.cuda.is_available() else "cpu")
+        self.ef = CustomEmbeddingFunction(model_path=model_path)
+        self.reranker = CustomReranker(model_path=model_path)
         self.collection = None
         self.setup_collection()
 
