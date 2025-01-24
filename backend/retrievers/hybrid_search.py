@@ -39,47 +39,62 @@ class SearchConfig:
 class CustomEmbeddingFunction:
     """Custom embedding function using Hugging Face transformers"""
     def __init__(self, model_path: str):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        self.model = AutoModel.from_pretrained(model_path)
         self.device = "cuda"
-        self.model.to(self.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        torch.cuda.empty_cache()  # Clear GPU cache before loading
+        self.model = AutoModel.from_pretrained(model_path).to(self.device).half()  # Enable fp16
 
-    def embed(self, texts: List[str]) -> np.ndarray:
-        """Generate embeddings for a list of texts"""
-        inputs = self.tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-        return outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+    def embed(self, texts: List[str], batch_size: int = 8) -> np.ndarray:
+        """Generate embeddings for a list of texts in batches"""
+        embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            inputs = self.tokenizer(batch_texts, return_tensors="pt", padding=True, truncation=True, max_length=512)
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            batch_embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+            embeddings.append(batch_embeddings)
+        return np.vstack(embeddings)  # Combine batches into a single array
+
 
 
 class CustomReranker:
     """Custom reranker using Hugging Face transformers"""
     def __init__(self, model_path: str):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        self.model = AutoModel.from_pretrained(model_path)
         self.device = "cuda"
-        self.model.to(self.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        torch.cuda.empty_cache()  # Clear GPU cache before loading
+        self.model = AutoModel.from_pretrained(model_path).to(self.device).half()  # Enable fp16
 
-    def rerank(self, candidates: List[Dict], query: str) -> List[Dict]:
+
+    def rerank(self, candidates: List[Dict], query: str, batch_size: int = 8) -> List[Dict]:
         """Rerank candidates based on query relevance"""
-        query_embedding = self.embed([query])[0]
+        query_embedding = self.embed([query])[0]  # Compute query embedding
         candidate_texts = [doc["content"] for doc in candidates]
-        candidate_embeddings = self.embed(candidate_texts)
+        candidate_embeddings = self.embed(candidate_texts, batch_size=batch_size)  # Compute candidate embeddings
         
+        # Compute scores via dot product
         scores = np.dot(candidate_embeddings, query_embedding)
         for i, doc in enumerate(candidates):
             doc["score"] = scores[i]
 
         return sorted(candidates, key=lambda x: x["score"], reverse=True)
 
-    def embed(self, texts: List[str]) -> np.ndarray:
-        """Generate embeddings for a list of texts"""
-        inputs = self.tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-        return outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+
+
+    def embed(self, texts: List[str], batch_size: int = 8) -> np.ndarray:
+        """Generate embeddings for a list of texts in batches"""
+        embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            inputs = self.tokenizer(batch_texts, return_tensors="pt", padding=True, truncation=True, max_length=512)
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            batch_embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+            embeddings.append(batch_embeddings)
+        return np.vstack(embeddings)  # Combine batches into a single array
 
 
 class EnhancedHybridSearch:
