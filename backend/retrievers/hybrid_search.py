@@ -9,8 +9,7 @@ from pymilvus import (
     Collection, FieldSchema, CollectionSchema, DataType,
     utility, connections, AnnSearchRequest
 )
-from pymilvus.model.hybrid import BGEM3EmbeddingFunction
-from pymilvus.model.reranker import BGERerankFunction
+from transformers import AutoTokenizer, AutoModel
 from langchain.schema import Document
 
 # Configure logging
@@ -35,21 +34,60 @@ class SearchConfig:
     num_shards: int = 2
     consistency_level: str = "Strong"
 
+class CustomEmbeddingFunction:
+    """Custom embedding function using Hugging Face transformers"""
+    def __init__(self, model_path: str, device: str = "cpu"):
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self.model = AutoModel.from_pretrained(model_path)
+        self.device = device
+        self.model.to(self.device)
+
+    def embed(self, texts: List[str]) -> np.ndarray:
+        """Generate embeddings for a list of texts"""
+        inputs = self.tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        return outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+
+
+class CustomReranker:
+    """Custom reranker using Hugging Face transformers"""
+    def __init__(self, model_path: str, device: str = "cpu"):
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self.model = AutoModel.from_pretrained(model_path)
+        self.device = device
+        self.model.to(self.device)
+
+    def rerank(self, candidates: List[Dict], query: str) -> List[Dict]:
+        """Rerank candidates based on query relevance"""
+        query_embedding = self.embed([query])[0]
+        candidate_texts = [doc["content"] for doc in candidates]
+        candidate_embeddings = self.embed(candidate_texts)
+        
+        scores = np.dot(candidate_embeddings, query_embedding)
+        for i, doc in enumerate(candidates):
+            doc["score"] = scores[i]
+
+        return sorted(candidates, key=lambda x: x["score"], reverse=True)
+
+    def embed(self, texts: List[str]) -> np.ndarray:
+        """Generate embeddings for a list of texts"""
+        inputs = self.tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        return outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+
+
 class EnhancedHybridSearch:
     """Base class for hybrid search implementation"""
     
     def __init__(self, config: SearchConfig):
         self.config = config
         model_path="../models/bge-m3-extracted"
-        self.ef = BGEM3EmbeddingFunction(
-            model_path=model_path,
-            use_fp16=True,
-            device="cuda" if torch.cuda.is_available() else "cpu"
-        )
-        self.reranker = BGERerankFunction(
-            model_path=model_path,
-            device="cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.ef = CustomEmbeddingFunction(model_path=model_path, device="cuda" if torch.cuda.is_available() else "cpu")
+        self.reranker = CustomReranker(model_path=model_path, device="cuda" if torch.cuda.is_available() else "cpu")
         self.collection = None
         self.setup_collection()
 
