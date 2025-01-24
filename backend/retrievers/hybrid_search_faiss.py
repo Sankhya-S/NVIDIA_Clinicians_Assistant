@@ -134,4 +134,3 @@ class EnhancedHybridSearchFAISS(EnhancedHybridSearch):
         except Exception as e:
             logger.error(f"Search error: {str(e)}")
             raise
-    
