@@ -38,58 +38,76 @@ class CustomEmbeddingFunction:
     def __init__(self, model_path: str):
         self.device = "cuda"
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        
+
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
-        
-        # Use smallest model variant possible
-        self.model = (
-            AutoModel.from_pretrained(model_path, 
-            torch_dtype=torch.float16,  # Explicit float16
-            low_cpu_mem_usage=True,     # Reduce CPU memory during loading
-            device_map="auto"           # Automatic device placement
-        )
-    )
-    
 
-    def embed(self, texts: List[str], initial_batch_size: int = 2):
+        # Use automatic device placement and reduce memory usage
+        self.model = AutoModel.from_pretrained(
+            model_path,
+            torch_dtype=torch.float16,  # Use mixed precision
+            low_cpu_mem_usage=True,     # Reduce CPU memory during loading
+            device_map="auto"           # Automatically distribute model
+        ).eval()
+
+    def embed(self, texts: List[str], initial_batch_size: int = 2) -> np.ndarray:
+        """Generate embeddings with dynamic batch size adjustment"""
         batch_size = initial_batch_size
+        embeddings = []
+
         while batch_size > 0:
             try:
-                embeddings = []
                 for i in range(0, len(texts), batch_size):
                     batch_texts = texts[i:i + batch_size]
-                    # Existing embedding logic
+                    inputs = self.tokenizer(
+                        batch_texts,
+                        return_tensors="pt",
+                        padding=True,
+                        truncation=True,
+                        max_length=512
+                    )
+                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+                    with torch.no_grad():
+                        outputs = self.model(**inputs)
+
+                    batch_embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+                    embeddings.append(batch_embeddings)
+
                 return np.vstack(embeddings)
-            except RuntimeError:
-                batch_size = max(1, batch_size // 2)
-                torch.cuda.empty_cache()
-        
+            except RuntimeError as e:
+                if "CUDA out of memory" in str(e):
+                    batch_size = max(1, batch_size // 2)
+                    torch.cuda.empty_cache()
+                else:
+                    raise e
+
         raise MemoryError("Cannot process texts with available GPU memory")
+
 
 class CustomReranker:
     """Custom reranker using Hugging Face transformers with memory optimization"""
     def __init__(self, model_path: str):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = "cuda"
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        
+
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
-        
-        self.model = (
-            AutoModel.from_pretrained(model_path)
-            .to(self.device)
-            .half()
-            .eval()
-        )
+
+        self.model = AutoModel.from_pretrained(
+            model_path,
+            torch_dtype=torch.float16,  # Use mixed precision
+            low_cpu_mem_usage=True,     # Reduce CPU memory during loading
+            device_map="auto"           # Automatically distribute model
+        ).eval()
 
     def rerank(self, candidates: List[Dict], query: str, batch_size: int = 2) -> List[Dict]:
         """Rerank candidates with reduced batch size and memory optimization"""
         query_embedding = self.embed([query])[0]
         candidate_texts = [doc["content"] for doc in candidates]
-        
+
         candidate_embeddings = self.embed(candidate_texts, batch_size=batch_size)
-        
+
         scores = np.dot(candidate_embeddings, query_embedding)
         for i, doc in enumerate(candidates):
             doc["score"] = scores[i]
@@ -99,31 +117,31 @@ class CustomReranker:
     def embed(self, texts: List[str], batch_size: int = 2) -> np.ndarray:
         """Embedding method with memory optimization"""
         embeddings = []
-        
+
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i:i + batch_size]
-            
             inputs = self.tokenizer(
-                batch_texts, 
-                return_tensors="pt", 
-                padding=True, 
-                truncation=True, 
+                batch_texts,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
                 max_length=512
             )
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            
+
             with torch.no_grad():
                 outputs = checkpoint(
-                    lambda **x: self.model(**x), 
+                    lambda **x: self.model(**x),
                     **inputs
                 )
-            
+
             batch_embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
             embeddings.append(batch_embeddings)
-            
+
             torch.cuda.empty_cache()
-        
+
         return np.vstack(embeddings)
+
 
 class EnhancedHybridSearch:
     """Enhanced hybrid search with memory-aware implementation"""
