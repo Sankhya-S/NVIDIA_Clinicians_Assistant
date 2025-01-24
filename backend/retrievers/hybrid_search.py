@@ -42,13 +42,15 @@ class CustomEmbeddingFunction:
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
-        # Use automatic device placement and reduce memory usage
         self.model = AutoModel.from_pretrained(
             model_path,
-            torch_dtype=torch.float16,  # Use mixed precision
-            low_cpu_mem_usage=True,     # Reduce CPU memory during loading
-            device_map="auto"           # Automatically distribute model
+            torch_dtype=torch.float16,
+            low_cpu_mem_usage=True,
+            device_map="auto"
         ).eval()
+
+        # Define embedding dimension
+        self.dim = self.model.config.hidden_size
 
     def embed(self, texts: List[str], initial_batch_size: int = 2) -> np.ndarray:
         """Generate embeddings with dynamic batch size adjustment"""
