@@ -12,6 +12,8 @@ from pymilvus import (
 from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 from pymilvus.model.reranker import BGERerankFunction
 from langchain.schema import Document
+import requests
+response = requests.get("https://huggingface.co/BAAI/bge-m3/...", verify=False)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
