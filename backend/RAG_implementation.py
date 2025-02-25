@@ -497,7 +497,8 @@ def main():
     processor = RAGProcessor()
     
     PDF_FOLDER = "/raid/sivaks1/BasicRAG/NVIDIA_Clinicians_Assistant/MIMIC_notes_PDF copy"
-    JSON_FOLDER = "/raid/nvidia-project/NVIDIA_Clinicians_Assistant/NVIDIA_Clinicians_Assistant/data/processed/note/json/discharge"
+    JSON_FOLDER = "/data/p_dsi/nvidia-capstone/NVIDIA_Clinicians_Assistant/data/processed/note/json/discharge"
+"
     
     while True:
         print("\nMedical Document Processing System")
