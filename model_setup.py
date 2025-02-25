@@ -27,7 +27,7 @@ def setup_embedding():
     """Sets up NVIDIA embeddings for document processing."""
     embedding_model = NVIDIAEmbeddings(
         model_name="nvidia/nv-embedqa-e5-v5",
-        base_url="http://localhost:8001" 
+        base_url="http://localhost:8089" 
     )
     return embedding_model
 
@@ -36,7 +36,7 @@ def setup_chat_model():
     """Sets up NVIDIA chat completion model."""
     chat_model = ChatNVIDIA(
         model_name="meta/llama-3.1-nemotron-70b-instruct:latest",
-        base_url="http://localhost:8000",
+        base_url="http://localhost:8088",
         max_tokens = 32768,
         temperature=0.1,  # Lower temperature for more focused responses
         model_kwargs={
