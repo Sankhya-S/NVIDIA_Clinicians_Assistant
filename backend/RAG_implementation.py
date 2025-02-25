@@ -498,7 +498,7 @@ def main():
     
     PDF_FOLDER = "/raid/sivaks1/BasicRAG/NVIDIA_Clinicians_Assistant/MIMIC_notes_PDF copy"
     JSON_FOLDER = "/data/p_dsi/nvidia-capstone/NVIDIA_Clinicians_Assistant/data/processed/note/json/discharge"
-"
+
     
     while True:
         print("\nMedical Document Processing System")
