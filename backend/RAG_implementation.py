@@ -126,42 +126,43 @@ class RAGProcessor:
                 retriever_func = retriever.get_relevant_documents
                 print("Standard vector search retriever configured successfully")
 
-        def enhanced_qa(query):
-            """Process queries using the configured retrieval method."""
-            query_str = query["query"] if isinstance(query, dict) else query
+            def enhanced_qa(query):
+                """Process queries using the configured retrieval method."""
+                query_str = query["query"] if isinstance(query, dict) else query
+                
+                # Get relevant documents
+                docs = retriever_func(query)
+                
+                # Create context using medical prompts
+                context = self.medical_prompts.combine_docs_with_metadata(docs)
+                
+                # Format prompt and get response
+                qa_prompt = self.medical_prompts.get_qa_prompt()
+                formatted_prompt = qa_prompt.format(
+                    context=context,
+                    question=query_str
+                )
+                llm_response = self.chat_model.predict(formatted_prompt)
+                
+                # Return structured response
+                return {
+                    "result": llm_response,
+                    "source_documents": docs,
+                    "metadata_summary": [{
+                        "note_id": doc.metadata.get("note_id", "N/A"),
+                        "subject_id": doc.metadata.get("subject_id", "N/A"),
+                        "hadm_id": doc.metadata.get("hadm_id", "N/A"),
+                        "charttime": doc.metadata.get("charttime", "N/A"),
+                        "storetime": doc.metadata.get("storetime", "N/A")
+                    } for doc in docs]
+                }
+    
+            self.qa_chain = enhanced_qa
             
-            # Get relevant documents
-            docs = retriever_func(query)
+        except Exception as e:
+            logger.error(f"Error setting up QA chain: {e}")
+            raise
             
-            # Create context using medical prompts
-            context = self.medical_prompts.combine_docs_with_metadata(docs)
-            
-            # Format prompt and get response
-            qa_prompt = self.medical_prompts.get_qa_prompt()
-            formatted_prompt = qa_prompt.format(
-                context=context,
-                question=query_str
-            )
-            llm_response = self.chat_model.predict(formatted_prompt)
-            
-            # Return structured response
-            return {
-                "result": llm_response,
-                "source_documents": docs,
-                "metadata_summary": [{
-                    "note_id": doc.metadata.get("note_id", "N/A"),
-                    "subject_id": doc.metadata.get("subject_id", "N/A"),
-                    "hadm_id": doc.metadata.get("hadm_id", "N/A"),
-                    "charttime": doc.metadata.get("charttime", "N/A"),
-                    "storetime": doc.metadata.get("storetime", "N/A")
-                } for doc in docs]
-            }
-
-        self.qa_chain = enhanced_qa
-        
-    except Exception as e:
-        logger.error(f"Error setting up QA chain: {e}")
-        raise
     def process_pdf_documents(self, pdf_folder: str, chunk_type: str = "detailed", enable_hybrid: bool = False) -> int:
         """Process PDF documents with specified chunking and search strategy."""
         print(f"\nProcessing PDFs from {pdf_folder}")
