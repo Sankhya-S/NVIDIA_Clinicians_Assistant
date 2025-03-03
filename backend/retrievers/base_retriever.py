@@ -6,6 +6,7 @@ from langchain.schema import Document
 from dataclasses import dataclass
 import logging
 from .hybrid_search import EnhancedHybridSearch, SearchConfig, RerankedResult
+from pymilvus import MilvusClient
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,11 @@ class RetrieverConfig:
     """Configuration settings for document retrieval."""
     k_documents: int = 10
     score_threshold: float = 0.7
+
+    milvus_lite_db: str = "./milvus_medical.db"  # Path to the Milvus Lite DB file
+    collection_name: str = "medical_notes"       # Collection name to use
+    use_milvus_lite: bool = False                # Whether to use Milvus Lite instead of regular Milvus
+
     
     # Hybrid search specific settings
     dense_weight: float = 0.4
@@ -49,19 +55,26 @@ class BasicMedicalRetriever(BaseMedicalRetriever):
     
     def __init__(self, vectorstore, config: Optional[RetrieverConfig] = None):
         """Initialize the basic medical retriever.
-        
-        Args:
-            vectorstore: The vectorstore containing document embeddings
-            config: Configuration for retrieval behavior
         """
-        self.vectorstore = vectorstore
         self.config = config or RetrieverConfig()
-        self._retriever = self.vectorstore.as_retriever(
-            search_kwargs={
-                "k": self.config.k_documents,
-                "score_threshold": self.config.score_threshold,
-            }
-        )
+    
+        if self.config.use_milvus_lite:
+            # Use Milvus Lite instead of standard vectorstore
+            self.vectorstore = None
+            self.milvus_client = MilvusClient(self.config.milvus_lite_db)
+            self.collection_name = self.config.collection_name
+            logger.info(f"Initialized Milvus Lite retriever with db: {self.config.milvus_lite_db}")
+        else:
+            # Use standard vectorstore (existing code)
+            self.vectorstore = vectorstore
+            self.milvus_client = None
+            self._retriever = self.vectorstore.as_retriever(
+                search_kwargs={
+                    "k": self.config.k_documents,
+                    "score_threshold": self.config.score_threshold,
+                }
+            )
+
 
     def get_relevant_documents(
         self,
@@ -179,20 +192,110 @@ class HybridMedicalRetriever(BaseMedicalRetriever):
             )
 
 def create_retriever(
-    vectorstore,
-    use_hybrid: bool = False,
+    document_chunks=None,
+    embedding_model=None,
     config: Optional[RetrieverConfig] = None
 ) -> BaseMedicalRetriever:
     """Factory function to create the appropriate retriever.
     
     Args:
-        vectorstore: The vectorstore containing document embeddings
-        use_hybrid: Whether to use hybrid search capabilities
+        document_chunks: Optional list of document chunks to initialize vectorstore
+        embedding_model: Embedding model for creating vectors
         config: Configuration for retrieval behavior
         
     Returns:
         An instance of the appropriate retriever type
     """
-    if use_hybrid:
-        return HybridMedicalRetriever(vectorstore, config)
-    return BasicMedicalRetriever(vectorstore, config)
+    config = config or RetrieverConfig()
+    
+    if config.use_milvus_lite:
+        # Set up Milvus Lite
+        client = MilvusClient(config.milvus_lite_db)
+        
+        # Check if collection exists, create if not
+        if config.collection_name not in client.list_collections():
+            logger.info(f"Creating new collection '{config.collection_name}' in Milvus Lite")
+            
+            # Try to get embedding dimension from model
+            dimension = 384  # Default dimension
+            if embedding_model:
+                try:
+                    sample_embedding = embedding_model.embed_query("Test")
+                    dimension = len(sample_embedding)
+                except:
+                    pass
+            
+            # Create collection
+            client.create_collection(
+                collection_name=config.collection_name,
+                dimension=dimension
+            )
+            
+            # If we have document chunks, add them to the collection
+            if document_chunks:
+                logger.info(f"Adding {len(document_chunks)} document chunks to Milvus Lite collection")
+                batch_size = 100
+                for i in range(0, len(document_chunks), batch_size):
+                    batch = document_chunks[i:i+batch_size]
+                    data = []
+                    
+                    for chunk in batch:
+                        # Get vector using embedding model
+                        content = chunk.get("content", "")
+                        embedding = embedding_model.embed_query(content)
+                        
+                        # Prepare document data
+                        doc_data = {
+                            "vector": embedding,
+                            "content": content,
+                            "note_id": str(chunk["metadata"]["note_id"]),
+                            "hadm_id": str(chunk["metadata"]["hadm_id"]),
+                            "subject_id": str(chunk["metadata"]["subject_id"]),
+                            "section": chunk["section"]
+                        }
+                        # Add optional fields if they exist
+                        if "charttime" in chunk["metadata"]:
+                            doc_data["charttime"] = str(chunk["metadata"]["charttime"])
+                        if "storetime" in chunk["metadata"]:
+                            doc_data["storetime"] = str(chunk["metadata"]["storetime"])
+                            
+                        data.append(doc_data)
+                    
+                    # Insert batch
+                    client.insert(config.collection_name, data)
+        
+        # Create retriever based on hybrid search setting
+        if config.use_hybrid and hasattr(config, 'use_hybrid') and config.use_hybrid:
+            return HybridMedicalRetriever(None, config)
+        else:
+            return BasicMedicalRetriever(None, config)
+    else:
+        # Use standard Milvus with vectorstore
+        from backend.vectorstores.document_embedding import (
+            save_basic_chunks,
+            save_detailed_chunks
+        )
+        
+        # If we have document chunks, create vectorstore
+        vectorstore = None
+        if document_chunks and embedding_model:
+            # Create vectorstore using existing implementation
+            if config.use_medical_sections:
+                vectorstore, _ = save_detailed_chunks(
+                    document_chunks,
+                    embedding_model,
+                    config.collection_name,
+                    enable_hybrid=config.use_hybrid
+                )
+            else:
+                vectorstore, _ = save_basic_chunks(
+                    document_chunks,
+                    embedding_model,
+                    config.collection_name
+                )
+        
+        # Create retriever based on vectorstore
+        if config.use_hybrid and hasattr(config, 'use_hybrid') and config.use_hybrid:
+            return HybridMedicalRetriever(vectorstore, config)
+        else:
+            return BasicMedicalRetriever(vectorstore, config)
