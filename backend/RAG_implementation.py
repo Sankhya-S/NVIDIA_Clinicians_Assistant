@@ -52,7 +52,7 @@ class RAGProcessor:
         self.qa_chain = None
         self.k_documents = 5
 
-        self.use_milvus_lite = False
+        self.use_milvus_lite = True
         self.milvus_lite_db = "./milvus_medical.db"
 
 
