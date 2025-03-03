@@ -299,7 +299,8 @@ def create_retriever(
             # Create collection
             client.create_collection(
                 collection_name=config.collection_name,
-                dimension=dimension
+                dimension=dimension,
+                auto_id=True
             )
             
             # If we have document chunks, add them to the collection
