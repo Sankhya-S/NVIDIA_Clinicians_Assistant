@@ -52,6 +52,10 @@ class RAGProcessor:
         self.qa_chain = None
         self.k_documents = 5
 
+        self.use_milvus_lite = False
+        self.milvus_lite_db = "./milvus_medical.db"
+
+
     def process_document_text(self, text: str, metadata: Dict, chunk_type: str = "detailed") -> List[Dict]:
         """Process document text using either basic or detailed chunking."""
         if chunk_type == "basic":
@@ -79,7 +83,29 @@ class RAGProcessor:
         
         try:
             # Determine search type and set up appropriate retriever
-            if isinstance(self.vectorstore, EnhancedHybridSearchFAISS):
+            if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite and isinstance(self.vectorstore, BaseMedicalRetriever):
+                print("Configuring Milvus Lite retriever...")
+                
+                def get_relevant_docs(query: str) -> List[Document]:
+                    # If query is a dict, it may contain a query_vector
+                    query_str = query["query"] if isinstance(query, dict) else query
+                    query_vector = query.get("query_vector") if isinstance(query, dict) else None
+                    
+                    if query_vector is None:
+                        # If no query vector provided, compute it
+                        query_vector = self.embedding_model.embed_query(query_str)
+                    
+                    # Get relevant documents using Milvus Lite retriever
+                    return self.vectorstore.get_relevant_documents(
+                        query_str,
+                        query_vector=query_vector,
+                        k=self.k_documents
+                    )
+                    
+                retriever_func = get_relevant_docs
+                print("Milvus Lite retriever configured successfully")
+                
+            elif isinstance(self.vectorstore, EnhancedHybridSearchFAISS):
                 print("Configuring hybrid search retriever with FAISS...")
                 hybrid_search = self.vectorstore
                 
@@ -100,43 +126,42 @@ class RAGProcessor:
                 retriever_func = retriever.get_relevant_documents
                 print("Standard vector search retriever configured successfully")
 
-            def enhanced_qa(query):
-                """Process queries using the configured retrieval method."""
-                query_str = query["query"] if isinstance(query, dict) else query
-                
-                # Get relevant documents
-                docs = retriever_func(query_str)
-                
-                # Create context using medical prompts
-                context = self.medical_prompts.combine_docs_with_metadata(docs)
-                
-                # Format prompt and get response
-                qa_prompt = self.medical_prompts.get_qa_prompt()
-                formatted_prompt = qa_prompt.format(
-                    context=context,
-                    question=query_str
-                )
-                llm_response = self.chat_model.predict(formatted_prompt)
-                
-                # Return structured response
-                return {
-                    "result": llm_response,
-                    "source_documents": docs,
-                    "metadata_summary": [{
-                        "note_id": doc.metadata.get("note_id", "N/A"),
-                        "subject_id": doc.metadata.get("subject_id", "N/A"),
-                        "hadm_id": doc.metadata.get("hadm_id", "N/A"),
-                        "charttime": doc.metadata.get("charttime", "N/A"),
-                        "storetime": doc.metadata.get("storetime", "N/A")
-                    } for doc in docs]
-                }
-
-            self.qa_chain = enhanced_qa
+        def enhanced_qa(query):
+            """Process queries using the configured retrieval method."""
+            query_str = query["query"] if isinstance(query, dict) else query
             
-        except Exception as e:
-            logger.error(f"Error setting up QA chain: {e}")
-            raise
+            # Get relevant documents
+            docs = retriever_func(query)
+            
+            # Create context using medical prompts
+            context = self.medical_prompts.combine_docs_with_metadata(docs)
+            
+            # Format prompt and get response
+            qa_prompt = self.medical_prompts.get_qa_prompt()
+            formatted_prompt = qa_prompt.format(
+                context=context,
+                question=query_str
+            )
+            llm_response = self.chat_model.predict(formatted_prompt)
+            
+            # Return structured response
+            return {
+                "result": llm_response,
+                "source_documents": docs,
+                "metadata_summary": [{
+                    "note_id": doc.metadata.get("note_id", "N/A"),
+                    "subject_id": doc.metadata.get("subject_id", "N/A"),
+                    "hadm_id": doc.metadata.get("hadm_id", "N/A"),
+                    "charttime": doc.metadata.get("charttime", "N/A"),
+                    "storetime": doc.metadata.get("storetime", "N/A")
+                } for doc in docs]
+            }
 
+        self.qa_chain = enhanced_qa
+        
+    except Exception as e:
+        logger.error(f"Error setting up QA chain: {e}")
+        raise
     def process_pdf_documents(self, pdf_folder: str, chunk_type: str = "detailed", enable_hybrid: bool = False) -> int:
         """Process PDF documents with specified chunking and search strategy."""
         print(f"\nProcessing PDFs from {pdf_folder}")
@@ -207,6 +232,8 @@ class RAGProcessor:
         """Process JSON documents with specified chunking and search strategy."""
         print(f"\nProcessing JSONs from {json_folder}")
         print(f"Using {chunk_type} chunking with {'hybrid' if enable_hybrid else 'standard'} search")
+        if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite:
+            print(f"Using Milvus Lite with database: {self.milvus_lite_db}")
         
         debug_print(f"Processing medical JSONs from {json_folder}")
         all_chunks = []
@@ -256,16 +283,39 @@ class RAGProcessor:
             except Exception as e:
                 print(f"Error processing medical note {json_path}: {e}")
                 continue
-
+    
         if not all_chunks:
             raise ValueError("No valid medical documents were processed from the input folder")
-
+    
         search_type = "hybrid" if enable_hybrid else "standard"
-        self.collection_name = f"json_documents_{chunk_type}_{search_type}"
-
+        # Add suffix for Milvus Lite
+        lite_suffix = "_lite" if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite else ""
+        self.collection_name = f"json_documents_{chunk_type}_{search_type}{lite_suffix}"
+    
         try:
+            # Check if we're using Milvus Lite
+            if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite:
+                print(f"\nSetting up {'hybrid' if enable_hybrid else 'standard'} search with Milvus Lite...")
+                
+                # Configure retriever for Milvus Lite
+                retriever_config = RetrieverConfig(
+                    use_hybrid=enable_hybrid,
+                    use_medical_sections=(chunk_type == "detailed"),
+                    collection_name=self.collection_name,
+                    use_milvus_lite=True,
+                    milvus_lite_db=self.milvus_lite_db
+                )
+                
+                # Create retriever with Milvus Lite
+                self.vectorstore = create_retriever(
+                    all_chunks,
+                    self.embedding_model,
+                    retriever_config
+                )
+                
+                print(f"Successfully set up Milvus Lite retriever with collection: {self.collection_name}")
             
-            if enable_hybrid:
+            elif enable_hybrid:
                 print("\nDEBUG: Setting up hybrid search for JSONs...")
                 
                 # Debug: Print collection name
@@ -413,7 +463,7 @@ class RAGProcessor:
                             import traceback
                             print(f"DEBUG: Stack trace:\n{traceback.format_exc()}")
                             raise
-
+    
             else:
                 print("Setting up standard vector search for JSONs...")
                 if chunk_type == "detailed":
@@ -442,7 +492,19 @@ class RAGProcessor:
         """Process a question using the medical QA system."""
         if not self.qa_chain:
             raise ValueError("Please process documents first")
-        return self.qa_chain(question)
+            
+        if self.use_milvus_lite:
+            # For Milvus Lite, we need to compute the query vector
+            query_vector = self.embedding_model.embed_query(question)
+            
+            # For basic retriever only
+            return self.qa_chain({
+                "query": question,
+                "query_vector": query_vector
+            })
+        else:
+            # Standard Milvus
+            return self.qa_chain(question)
 
     def process_questions(self, questions_csv: str, output_csv: str, chunk_size: int = 10):
         """Process multiple questions from a CSV and save results."""
