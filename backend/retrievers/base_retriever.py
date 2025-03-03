@@ -296,7 +296,7 @@ def create_retriever(
                 except:
                     pass
             
-            # Create collection
+            # Create collection with auto_id=True to handle ID generation
             client.create_collection(
                 collection_name=config.collection_name,
                 dimension=dimension,
@@ -336,8 +336,9 @@ def create_retriever(
                     # Insert batch
                     client.insert(config.collection_name, data)
         
-        # Create retriever based on hybrid search setting
-        if config.use_hybrid and hasattr(config, 'use_hybrid') and config.use_hybrid:
+        # Create retriever - fixed the attribute check
+        # Only check hasattr first before accessing the attribute
+        if hasattr(config, 'use_hybrid') and config.use_hybrid:
             return HybridMedicalRetriever(None, config)
         else:
             return BasicMedicalRetriever(None, config)
@@ -352,12 +353,12 @@ def create_retriever(
         vectorstore = None
         if document_chunks and embedding_model:
             # Create vectorstore using existing implementation
-            if config.use_medical_sections:
+            if hasattr(config, 'use_medical_sections') and config.use_medical_sections:
                 vectorstore, _ = save_detailed_chunks(
                     document_chunks,
                     embedding_model,
                     config.collection_name,
-                    enable_hybrid=config.use_hybrid
+                    enable_hybrid=hasattr(config, 'use_hybrid') and config.use_hybrid
                 )
             else:
                 vectorstore, _ = save_basic_chunks(
@@ -366,8 +367,8 @@ def create_retriever(
                     config.collection_name
                 )
         
-        # Create retriever based on vectorstore
-        if config.use_hybrid and hasattr(config, 'use_hybrid') and config.use_hybrid:
+        # Create retriever based on vectorstore - fixed attribute check
+        if hasattr(config, 'use_hybrid') and config.use_hybrid:
             return HybridMedicalRetriever(vectorstore, config)
         else:
             return BasicMedicalRetriever(vectorstore, config)
