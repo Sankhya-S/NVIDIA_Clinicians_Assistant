@@ -298,10 +298,8 @@ class RAGProcessor:
             if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite:
                 print(f"\nSetting up {'hybrid' if enable_hybrid else 'standard'} search with Milvus Lite...")
                 
-                # Configure retriever for Milvus Lite
+                # Configure retriever for Milvus Lite - REMOVE problematic parameters
                 retriever_config = RetrieverConfig(
-                    use_hybrid=enable_hybrid,
-                    use_medical_sections=(chunk_type == "detailed"),
                     collection_name=self.collection_name,
                     use_milvus_lite=True,
                     milvus_lite_db=self.milvus_lite_db
