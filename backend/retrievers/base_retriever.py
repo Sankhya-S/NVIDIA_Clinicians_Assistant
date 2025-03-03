@@ -82,17 +82,88 @@ class BasicMedicalRetriever(BaseMedicalRetriever):
         filters: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> List[Document]:
-        """Retrieve documents using basic vector similarity."""
+        """Retrieve documents using basic vector similarity.
+        
+        Args:
+            query: The query text to search for
+            filters: Optional metadata filters to apply
+            **kwargs: Additional arguments including:
+                - k: Number of documents to retrieve (overrides config)
+                - query_vector: Pre-computed query vector (required for Milvus Lite)
+        
+        Returns:
+            List of relevant documents
+        """
         try:
             k = kwargs.get('k', self.config.k_documents)
-            search_kwargs = {"k": k}
-            if filters:
-                search_kwargs["filter"] = filters
             
-            documents = self._retriever.get_relevant_documents(query, **search_kwargs)
-            logger.info(f"Retrieved {len(documents)} documents using basic search")
-            return documents
-            
+            if self.config.use_milvus_lite:
+                # Use Milvus Lite client for search
+                # We need to get the vector embedding for the query
+                if 'query_vector' not in kwargs:
+                    raise ValueError("When using Milvus Lite, you must provide 'query_vector' in kwargs")
+                
+                query_vector = kwargs['query_vector']
+                filter_expr = None
+                
+                if filters:
+                    # Convert filters dict to Milvus filter expression
+                    filter_parts = []
+                    for key, value in filters.items():
+                        if isinstance(value, str):
+                            filter_parts.append(f"{key} == '{value}'")
+                        elif isinstance(value, (list, tuple)):
+                            # Handle IN operator for lists
+                            values_str = ", ".join([f"'{v}'" if isinstance(v, str) else str(v) for v in value])
+                            filter_parts.append(f"{key} in [{values_str}]")
+                        else:
+                            filter_parts.append(f"{key} == {value}")
+                    filter_expr = " && ".join(filter_parts)
+                
+                # Search in Milvus Lite
+                search_results = self.milvus_client.search(
+                    collection_name=self.collection_name,
+                    data=[query_vector],
+                    filter=filter_expr,
+                    limit=k,
+                    output_fields=["content", "note_id", "hadm_id", "subject_id", "section", "charttime", "storetime"]
+                )
+                
+                # Convert Milvus Lite results to Documents
+                documents = []
+                if search_results and len(search_results) > 0:
+                    for hit in search_results[0]:
+                        metadata = {
+                            "note_id": hit.get("note_id", ""),
+                            "hadm_id": hit.get("hadm_id", ""),
+                            "subject_id": hit.get("subject_id", ""),
+                            "section": hit.get("section", ""),
+                            "score": hit.get("score", 0.0)
+                        }
+                        # Add optional fields if present
+                        if "charttime" in hit:
+                            metadata["charttime"] = hit["charttime"]
+                        if "storetime" in hit:
+                            metadata["storetime"] = hit["storetime"]
+                        
+                        doc = Document(
+                            page_content=hit.get("content", ""),
+                            metadata=metadata
+                        )
+                        documents.append(doc)
+                
+                logger.info(f"Retrieved {len(documents)} documents using Milvus Lite")
+                return documents
+            else:
+                # Use standard vectorstore
+                search_kwargs = {"k": k}
+                if filters:
+                    search_kwargs["filter"] = filters
+                
+                documents = self._retriever.get_relevant_documents(query, **search_kwargs)
+                logger.info(f"Retrieved {len(documents)} documents using basic search")
+                return documents
+                
         except Exception as e:
             logger.error(f"Error in basic retrieval: {e}")
             raise
