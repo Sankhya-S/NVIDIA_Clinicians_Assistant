@@ -64,6 +64,144 @@ class RAGProcessor:
         self.use_multi_query = True
         self.compression_similarity_threshold = 0.75
 
+    def examine_milvus_lite_collection(self):
+        """Examine the contents of the Milvus Lite collection to diagnose retrieval issues."""
+        if not hasattr(self, 'collection_name') or not self.collection_name:
+            print("No collection name set. Please process documents first.")
+            return
+            
+        try:
+            from pymilvus import MilvusClient
+            
+            if not hasattr(self, 'milvus_client') or self.milvus_client is None:
+                self.milvus_client = MilvusClient(self.milvus_lite_db)
+            
+            print(f"\nExamining collection: {self.collection_name}")
+            
+            # Check if collection exists
+            all_collections = self.milvus_client.list_collections()
+            print(f"All collections in DB: {all_collections}")
+            
+            if self.collection_name not in all_collections:
+                print(f"Collection {self.collection_name} does not exist!")
+                return
+            
+            # Get collection statistics
+            try:
+                stats = self.milvus_client.get_collection_stats(self.collection_name)
+                print(f"Collection stats: {stats}")
+                row_count = stats.get('row_count', 0)
+                print(f"Total documents in collection: {row_count}")
+            except Exception as e:
+                print(f"Error getting collection stats: {e}")
+            
+            # Try to query some documents
+            try:
+                results = self.milvus_client.query(
+                    collection_name=self.collection_name,
+                    filter="",
+                    output_fields=["content", "note_id", "hadm_id", "subject_id"],
+                    limit=5
+                )
+                
+                if not results or len(results) == 0:
+                    print("No documents found in query result")
+                else:
+                    print(f"\nFound {len(results)} sample documents in collection:")
+                    for doc in results:
+                        print(f"Document ID: {doc.get('note_id', 'Unknown')}")
+                        print(f"Content preview: {doc.get('content', '')[:100]}...")
+                        print("-" * 50)
+            except Exception as e:
+                print(f"Error querying collection: {e}")
+            
+            # Test search with basic terms
+            try:
+                print("\nTesting search functionality with basic terms...")
+                test_query = "patient"
+                query_vector = self.embedding_model.embed_query(test_query)
+                
+                search_results = self.milvus_client.search(
+                    collection_name=self.collection_name,
+                    data=[query_vector],
+                    limit=5,
+                    output_fields=["content", "note_id"]
+                )
+                
+                if not search_results or len(search_results) == 0 or len(search_results[0]) == 0:
+                    print(f"No search results found for query: '{test_query}'")
+                    
+                    # Check collection schema
+                    schema = self.milvus_client.describe_collection(self.collection_name)
+                    print(f"\nCollection schema: {schema}")
+                    
+                    # Check if there's an issue with the score threshold
+                    print("\nTesting search with no score threshold...")
+                    
+                    # Try to inspect the retriever config
+                    if hasattr(self.vectorstore, 'config'):
+                        print(f"Current retriever configuration:")
+                        print(f"- Score threshold: {self.vectorstore.config.score_threshold}")
+                        print(f"- K documents: {self.vectorstore.config.k_documents}")
+                    
+                    # Try search with very low threshold
+                    try:
+                        print("\nAttempting search with no score threshold...")
+                        low_threshold_results = self.milvus_client.search(
+                            collection_name=self.collection_name,
+                            data=[query_vector],
+                            limit=20,  # Increase limit
+                            output_fields=["content", "note_id"]
+                        )
+                        
+                        if low_threshold_results and len(low_threshold_results) > 0 and len(low_threshold_results[0]) > 0:
+                            print(f"Found {len(low_threshold_results[0])} results with no threshold")
+                            for hit in low_threshold_results[0]:
+                                print(f"Score: {hit.get('score', 'N/A')}")
+                                print(f"Document ID: {hit.get('note_id', 'Unknown')}")
+                                print(f"Content preview: {hit.get('content', '')[:100]}...")
+                                print("-" * 50)
+                        else:
+                            print("Still no results found with no threshold")
+                    except Exception as e:
+                        print(f"Error in no-threshold search: {e}")
+                        
+                    # Try with medical terms
+                    try:
+                        print("\nTesting with specific medical terms...")
+                        medical_terms = ["diagnosis", "treatment", "medication", "symptoms", "history", "admission"]
+                        
+                        for term in medical_terms:
+                            term_vector = self.embedding_model.embed_query(term)
+                            term_results = self.milvus_client.search(
+                                collection_name=self.collection_name,
+                                data=[term_vector],
+                                limit=3,
+                                output_fields=["content", "note_id"]
+                            )
+                            
+                            if term_results and len(term_results) > 0 and len(term_results[0]) > 0:
+                                print(f"Found {len(term_results[0])} results for term '{term}'")
+                                for hit in term_results[0]:
+                                    print(f"Score: {hit.get('score', 'N/A')}")
+                                    print(f"Content preview: {hit.get('content', '')[:50]}...")
+                                    print("-" * 30)
+                            else:
+                                print(f"No results for term '{term}'")
+                    except Exception as e:
+                        print(f"Error in medical terms search: {e}")
+                else:
+                    print(f"Found {len(search_results[0])} search results for '{test_query}':")
+                    for hit in search_results[0]:
+                        print(f"Score: {hit.get('score', 'N/A')}")
+                        print(f"Document ID: {hit.get('note_id', 'Unknown')}")
+                        print(f"Content preview: {hit.get('content', '')[:100]}...")
+                        print("-" * 50)
+            except Exception as e:
+                print(f"Error testing search: {e}")
+                
+        except Exception as e:
+            print(f"Error examining collection: {e}")
 
     def process_document_text(self, text: str, metadata: Dict, chunk_type: str = "detailed") -> List[Dict]:
         """Process document text using either basic or detailed chunking."""
@@ -790,9 +928,10 @@ def main():
         print("2. Process JSON documents")
         print("3. Ask a question")
         print("4. Process questions from CSV")
-        print("5. Exit")
+        print("5. Diagnose Milvus Lite collection")
+        print("6. Exit")
         
-        choice = input("\nEnter choice (1-5): ")
+        choice = input("\nEnter choice (1-6): ")
         
         if choice in ['1', '2']:
             # First choose chunking strategy
@@ -871,8 +1010,17 @@ def main():
                 processor.process_questions(csv_path, output_path, chunk_size)
             except Exception as e:
                 print(f"Error processing questions from CSV: {e}")
+
+        elif choice == '5':  # Add this section
+            if not processor.collection_name:
+                print("\nError: No collection has been set up yet. Please process documents first.")
+                continue
+            try:
+                processor.examine_milvus_lite_collection()
+            except Exception as e:
+                print(f"Error diagnosing collection: {e}")
             
-        elif choice == '5':
+        elif choice == '6':
             print("\nExiting Medical Document Processing System")
             break
         else:
