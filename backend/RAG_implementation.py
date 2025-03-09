@@ -39,6 +39,10 @@ from backend.retrievers.base_retriever import (
 from backend.retrievers.hybrid_search import EnhancedHybridSearch, SearchConfig
 from backend.retrievers.hybrid_search_faiss import EnhancedHybridSearchFAISS  
 
+from langchain.retrievers import ContextualCompressionRetriever, MultiQueryRetriever
+from langchain.retrievers.document_compressors import DocumentCompressorPipeline
+from langchain.document_transformers import EmbeddingsRedundantFilter, LongContextReorder
+
 logger = logging.getLogger(__name__)
 
 class RAGProcessor:
@@ -54,6 +58,11 @@ class RAGProcessor:
 
         self.use_milvus_lite = True
         self.milvus_lite_db = "./milvus_medical.db"
+
+        # New enhanced retrieval settings
+        self.use_contextual_compression = True
+        self.use_multi_query = True
+        self.compression_similarity_threshold = 0.75
 
 
     def process_document_text(self, text: str, metadata: Dict, chunk_type: str = "detailed") -> List[Dict]:
@@ -82,50 +91,253 @@ class RAGProcessor:
             raise ValueError("Vectorstore must be initialized before setting up QA chain")
         
         try:
+            # Define retriever_func at the outer scope so it's available to enhanced_qa
+            retriever_func = None
+            
             # Determine search type and set up appropriate retriever
             if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite and isinstance(self.vectorstore, BaseMedicalRetriever):
                 print("Configuring Milvus Lite retriever...")
                 
-                def get_relevant_docs(query: str) -> List[Document]:
-                    # If query is a dict, it may contain a query_vector
-                    query_str = query["query"] if isinstance(query, dict) else query
-                    query_vector = query.get("query_vector") if isinstance(query, dict) else None
+                # Apply document transformers if enabled
+                if self.use_contextual_compression and hasattr(self.vectorstore, '_base_retriever'):
+                    print("Adding contextual compression to retriever...")
+                    redundant_filter = EmbeddingsRedundantFilter(
+                        embeddings=self.embedding_model,
+                        similarity_threshold=self.compression_similarity_threshold
+                    )
+                    reordering = LongContextReorder()
                     
-                    if query_vector is None:
-                        # If no query vector provided, compute it
-                        query_vector = self.embedding_model.embed_query(query_str)
-                    
-                    # Get relevant documents using Milvus Lite retriever
-                    return self.vectorstore.get_relevant_documents(
-                        query_str,
-                        query_vector=query_vector,
-                        k=self.k_documents
+                    compressor_pipeline = DocumentCompressorPipeline(
+                        transformers=[redundant_filter, reordering]
                     )
                     
-                retriever_func = get_relevant_docs
-                print("Milvus Lite retriever configured successfully")
+                    enhanced_retriever = ContextualCompressionRetriever(
+                        base_compressor=compressor_pipeline,
+                        base_retriever=self.vectorstore._base_retriever
+                    )
+                    
+                    def get_relevant_docs(query: str) -> List[Document]:
+                        query_str = query["query"] if isinstance(query, dict) else query
+                        query_vector = query.get("query_vector") if isinstance(query, dict) else None
+                        
+                        if query_vector is None:
+                            query_vector = self.embedding_model.embed_query(query_str)
+                        
+                        # Use enhanced retriever if no query vector is needed, otherwise use base
+                        if hasattr(enhanced_retriever, 'get_relevant_documents'):
+                            return enhanced_retriever.get_relevant_documents(query_str)
+                        else:
+                            return self.vectorstore.get_relevant_documents(
+                                query_str,
+                                query_vector=query_vector,
+                                k=self.k_documents
+                            )
+                    
+                    retriever_func = get_relevant_docs
+                    print("Enhanced Milvus Lite retriever configured with compression")
+                else:
+                    # Original Milvus Lite retriever code
+                    def get_relevant_docs(query: str) -> List[Document]:
+                        query_str = query["query"] if isinstance(query, dict) else query
+                        query_vector = query.get("query_vector") if isinstance(query, dict) else None
+                        
+                        if query_vector is None:
+                            query_vector = self.embedding_model.embed_query(query_str)
+                        
+                        return self.vectorstore.get_relevant_documents(
+                            query_str,
+                            query_vector=query_vector,
+                            k=self.k_documents
+                        )
+                    
+                    retriever_func = get_relevant_docs
+                    print("Standard Milvus Lite retriever configured")
+                    
+                # Apply multi-query enhancement if enabled
+                if self.use_multi_query and retriever_func and hasattr(self.chat_model, 'predict'):
+                    try:
+                        print("Adding multi-query capability to Milvus Lite retriever...")
+                        
+                        # Store the base retriever function
+                        base_retriever_func = retriever_func
+                        
+                        # Create a wrapper function that implements multi-query
+                        def multi_query_retriever_func(query):
+                            query_str = query["query"] if isinstance(query, dict) else query
+                            query_vector = query.get("query_vector") if isinstance(query, dict) else None
+                            
+                            # Generate multiple query variations using the LLM
+                            prompt = f"""
+                            Generate three different versions of the following query to retrieve relevant medical information. 
+                            Make each version focus on different relevant medical aspects.
+                            
+                            Original query: {query_str}
+                            
+                            Return only the three alternative queries, one per line.
+                            """
+                            
+                            try:
+                                variations_response = self.chat_model.predict(prompt)
+                                query_variations = [line.strip() for line in variations_response.split('\n') if line.strip()]
+                                
+                                # Make sure we have at least the original query
+                                if not query_variations:
+                                    query_variations = [query_str]
+                                else:
+                                    # Always include the original query
+                                    query_variations.append(query_str)
+                                
+                                print(f"Generated {len(query_variations)} query variations")
+                                
+                                # Get documents for each query variation
+                                all_docs = []
+                                doc_ids = set()  # Track unique document IDs
+                                
+                                for q_var in query_variations:
+                                    # Create query with vector if needed
+                                    if query_vector is not None:
+                                        q_with_vector = {"query": q_var, "query_vector": query_vector}
+                                    else:
+                                        # This will compute a new vector in the base_retriever_func
+                                        q_with_vector = {"query": q_var}
+                                    
+                                    # Get docs for this variation
+                                    var_docs = base_retriever_func(q_with_vector)
+                                    
+                                    # Add only unique documents
+                                    for doc in var_docs:
+                                        doc_id = doc.metadata.get('note_id', '') + str(doc.page_content[:50])
+                                        if doc_id not in doc_ids:
+                                            all_docs.append(doc)
+                                            doc_ids.add(doc_id)
+                                
+                                # Limit to the original k_documents
+                                return all_docs[:self.k_documents]
+                                
+                            except Exception as e:
+                                print(f"Error in multi-query processing: {e}, falling back to base retriever")
+                                # Fall back to original retriever function
+                                return base_retriever_func(query)
+                        
+                        # Replace the retriever function with multi-query version
+                        retriever_func = multi_query_retriever_func
+                        print("Multi-query capability added to Milvus Lite retriever")
+                        
+                    except Exception as e:
+                        print(f"Failed to set up multi-query for Milvus Lite: {e}")
+                        # Keep the original retriever_func
                 
+            # Handle FAISS hybrid search case
             elif isinstance(self.vectorstore, EnhancedHybridSearchFAISS):
                 print("Configuring hybrid search retriever with FAISS...")
                 hybrid_search = self.vectorstore
                 
                 def get_relevant_docs(query: str) -> List[Document]:
+                    query_str = query["query"] if isinstance(query, dict) else query
                     results = hybrid_search.hybrid_search(
-                        query=query,
+                        query=query_str,
                         k=self.k_documents
                     )
                     return [result.document for result in results]
                     
                 retriever_func = get_relevant_docs
                 print("Hybrid search retriever configured successfully")
+                
+                # Apply document transformers if enabled
+                if self.use_contextual_compression:
+                    try:
+                        print("Adding contextual compression to hybrid search retriever...")
+                        redundant_filter = EmbeddingsRedundantFilter(
+                            embeddings=self.embedding_model,
+                            similarity_threshold=self.compression_similarity_threshold
+                        )
+                        reordering = LongContextReorder()
+                        
+                        # Create a document compressor pipeline
+                        compressor = DocumentCompressorPipeline(
+                            transformers=[redundant_filter, reordering]
+                        )
+                        
+                        # Store the base retriever function
+                        base_retriever_func = retriever_func
+                        
+                        # Create a function that applies compression
+                        def compressed_retriever_func(query):
+                            docs = base_retriever_func(query)
+                            return compressor.compress_documents(docs, query)
+                        
+                        # Replace the retriever function
+                        retriever_func = compressed_retriever_func
+                        print("Compression added to hybrid search retriever")
+                    except Exception as e:
+                        print(f"Error setting up compression for hybrid search: {e}")
+                        # Keep the original retriever_func
+            
+            # Handle standard vectorstore case
             else:
                 print("Configuring standard vector search retriever...")
-                retriever = self.vectorstore.as_retriever(
+                
+                # Create the base retriever
+                base_retriever = self.vectorstore.as_retriever(
                     search_kwargs={"k": self.k_documents}
                 )
-                retriever_func = retriever.get_relevant_documents
-                print("Standard vector search retriever configured successfully")
-
+                retriever_func = base_retriever.get_relevant_documents
+                
+                # Apply multi-query if enabled
+                if self.use_multi_query and hasattr(self.chat_model, 'predict'):
+                    try:
+                        print("Adding multi-query capability to standard retriever...")
+                        multi_query_retriever = MultiQueryRetriever.from_llm(
+                            retriever=base_retriever,
+                            llm=self.chat_model
+                        )
+                        
+                        # Update the retriever function
+                        def multi_query_func(query):
+                            query_str = query["query"] if isinstance(query, dict) else query
+                            return multi_query_retriever.get_relevant_documents(query_str)
+                        
+                        retriever_func = multi_query_func
+                        print("Multi-query retriever configured successfully")
+                    except Exception as e:
+                        print(f"Error setting up multi-query retriever: {e}, using standard retriever")
+                        # Keep the original retriever_func
+                
+                # Apply contextual compression if enabled
+                if self.use_contextual_compression:
+                    try:
+                        print("Adding contextual compression to standard retriever...")
+                        redundant_filter = EmbeddingsRedundantFilter(
+                            embeddings=self.embedding_model,
+                            similarity_threshold=self.compression_similarity_threshold
+                        )
+                        reordering = LongContextReorder()
+                        
+                        compressor_pipeline = DocumentCompressorPipeline(
+                            transformers=[redundant_filter, reordering]
+                        )
+                        
+                        # Store the current retriever function
+                        base_retriever_func = retriever_func
+                        
+                        # Create a function that applies compression
+                        def compressed_retriever_func(query):
+                            query_str = query["query"] if isinstance(query, dict) else query
+                            docs = base_retriever_func(query)
+                            return compressor_pipeline.compress_documents(docs, query_str)
+                        
+                        # Replace the retriever function
+                        retriever_func = compressed_retriever_func
+                        print("Compression added to standard retriever")
+                    except Exception as e:
+                        print(f"Error setting up compression for standard retriever: {e}")
+                        # Keep the original retriever_func
+            
+            # Verify that we have a retriever function
+            if retriever_func is None:
+                raise ValueError("Failed to configure a retriever function")
+            
+            # Now define enhanced_qa using the configured retriever_func
             def enhanced_qa(query):
                 """Process queries using the configured retrieval method."""
                 query_str = query["query"] if isinstance(query, dict) else query
@@ -156,8 +368,9 @@ class RAGProcessor:
                         "storetime": doc.metadata.get("storetime", "N/A")
                     } for doc in docs]
                 }
-    
+            
             self.qa_chain = enhanced_qa
+            print("QA chain setup complete")
             
         except Exception as e:
             logger.error(f"Error setting up QA chain: {e}")
@@ -229,8 +442,12 @@ class RAGProcessor:
             print(f"Error setting up vectorstore: {e}")
             raise
 
-    def process_json_documents(self, json_folder: str, chunk_type: str = "detailed", enable_hybrid: bool = False) -> int:
+    def process_json_documents(self, json_folder: str, chunk_type: str = "detailed", enable_hybrid: bool = False, use_compression: bool = True, use_multi_query: bool = True) -> int:
         """Process JSON documents with specified chunking and search strategy."""
+        
+        self.use_contextual_compression = use_compression
+        self.use_multi_query = use_multi_query
+        
         print(f"\nProcessing JSONs from {json_folder}")
         print(f"Using {chunk_type} chunking with {'hybrid' if enable_hybrid else 'standard'} search")
         if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite:
@@ -302,7 +519,12 @@ class RAGProcessor:
                 retriever_config = RetrieverConfig(
                     collection_name=self.collection_name,
                     use_milvus_lite=True,
-                    milvus_lite_db=self.milvus_lite_db
+                    milvus_lite_db=self.milvus_lite_db,
+                    # Add the new configuration options
+                    use_contextual_compression=self.use_contextual_compression,
+                    use_multi_query=self.use_multi_query,
+                    compression_similarity_threshold=self.compression_similarity_threshold,
+                    llm=self.chat_model
                 )
                 
                 # Create retriever with Milvus Lite
