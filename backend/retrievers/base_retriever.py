@@ -7,6 +7,9 @@ from dataclasses import dataclass
 import logging
 from .hybrid_search import EnhancedHybridSearch, SearchConfig, RerankedResult
 from pymilvus import MilvusClient
+from langchain.retrievers import ContextualCompressionRetriever, MultiQueryRetriever
+from langchain.retrievers.document_compressors import DocumentCompressorPipeline
+from langchain.document_transformers import EmbeddingsRedundantFilter, LongContextReorder
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,12 @@ class RetrieverConfig:
     sparse_weight: float = 0.3
     rerank_weight: float = 0.3
     cache_size: int = 1000
+
+    # New enhanced retrieval settings
+    use_multi_query: bool = False  
+    use_contextual_compression: bool = False  
+    compression_similarity_threshold: float = 0.75  
+    llm: Optional[Any] = None #for multi-query retriever
 
 class BaseMedicalRetriever(ABC):
     """Base class defining the interface for medical document retrievers."""
@@ -53,10 +62,11 @@ class BaseMedicalRetriever(ABC):
 class BasicMedicalRetriever(BaseMedicalRetriever):
     """Standard retriever using basic vector similarity search."""
     
-    def __init__(self, vectorstore, config: Optional[RetrieverConfig] = None):
+    def __init__(self, vectorstore, config: Optional[RetrieverConfig] = None, embedding_model=None):
         """Initialize the basic medical retriever.
         """
         self.config = config or RetrieverConfig()
+        self.embedding_model = embedding_model
     
         if self.config.use_milvus_lite:
             # Use Milvus Lite instead of standard vectorstore
@@ -65,15 +75,58 @@ class BasicMedicalRetriever(BaseMedicalRetriever):
             self.collection_name = self.config.collection_name
             logger.info(f"Initialized Milvus Lite retriever with db: {self.config.milvus_lite_db}")
         else:
-            # Use standard vectorstore (existing code)
+            # Use standard vectorstore 
             self.vectorstore = vectorstore
             self.milvus_client = None
-            self._retriever = self.vectorstore.as_retriever(
+            
+            base_retriever = self.vectorstore.as_retriever(
                 search_kwargs={
                     "k": self.config.k_documents,
                     "score_threshold": self.config.score_threshold,
                 }
             )
+            # Store the base retriever for fallback
+            self._base_retriever = base_retriever
+            self._retriever = base_retriever
+
+            # Apply document transformers and contextual compression if configured
+            if getattr(self.config, 'use_contextual_compression', False) and embedding_model is not None:
+                # Create document transformer pipeline
+                redundant_filter = EmbeddingsRedundantFilter(
+                    embeddings=embedding_model,
+                    similarity_threshold=self.config.compression_similarity_threshold
+                )
+                reordering = LongContextReorder()
+                
+                # Create pipeline of transformers
+                compressor_pipeline = DocumentCompressorPipeline(
+                    transformers=[redundant_filter, reordering]
+                )
+                
+                # Create compression retriever
+                self._retriever = ContextualCompressionRetriever(
+                    base_compressor=compressor_pipeline,
+                    base_retriever=self._retriever
+                )
+                logger.info("Initialized retriever with contextual compression")
+
+            # Apply multi-query enhancement if configured
+            if getattr(self.config, 'use_multi_query', False):
+                try:
+                    if self.config.llm is not None:
+                        # Create multi-query retriever with the provided LLM
+                        self._retriever = MultiQueryRetriever.from_llm(
+                            retriever=self._retriever,
+                            llm=self.config.llm
+                        )
+                        logger.info("Initialized retriever with multi-query capability")
+                    else:
+                        logger.warning("Multi-query retrieval enabled but no LLM provided")
+                except Exception as e:
+                    logger.error(f"Failed to initialize multi-query retriever: {e}")
+                    # Fallback to previous retriever
+                    pass
+            
 
 
     def get_relevant_documents(
@@ -341,7 +394,7 @@ def create_retriever(
         if hasattr(config, 'use_hybrid') and config.use_hybrid:
             return HybridMedicalRetriever(None, config)
         else:
-            return BasicMedicalRetriever(None, config)
+            return BasicMedicalRetriever(None, config, embedding_model)
     else:
         # Use standard Milvus with vectorstore
         from backend.vectorstores.document_embedding import (
@@ -371,4 +424,4 @@ def create_retriever(
         if hasattr(config, 'use_hybrid') and config.use_hybrid:
             return HybridMedicalRetriever(vectorstore, config)
         else:
-            return BasicMedicalRetriever(vectorstore, config)
+            return BasicMedicalRetriever(vectorstore, config, embedding_model)
