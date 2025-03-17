@@ -34,6 +34,7 @@ from backend.processors.notes_processor import extract_text_from_pdf
 from backend.retrievers.base_retriever import (
     RetrieverConfig,
     create_retriever,
+    insert_documents_into_milvus_lite,
     BaseMedicalRetriever
 )
 from backend.retrievers.hybrid_search import EnhancedHybridSearch, SearchConfig
