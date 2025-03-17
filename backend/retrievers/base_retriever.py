@@ -490,156 +490,77 @@ def create_retriever(
     embedding_model=None,
     config: Optional[RetrieverConfig] = None
 ) -> BaseMedicalRetriever:
-    """Factory function to create the appropriate retriever.
-    
-    Args:
-        document_chunks: Optional list of document chunks to initialize vectorstore
-        embedding_model: Embedding model for creating vectors
-        config: Configuration for retrieval behavior
-        
-    Returns:
-        An instance of the appropriate retriever type
-    """
+    """Factory function to create the appropriate retriever."""
     config = config or RetrieverConfig()
     
     if config.use_milvus_lite:
-        # Set up Milvus Lite
+        # Set up Milvus Lite client
         client = MilvusClient(config.milvus_lite_db)
+        print(f"Creating retriever for Milvus Lite collection: {config.collection_name}")
         
-        # Check if collection exists, create if not
-        if config.collection_name not in client.list_collections():
-            logger.info(f"Creating new collection '{config.collection_name}' in Milvus Lite")
-            
-            # Try to get embedding dimension from model
-            dimension = 384  # Default dimension
-            if embedding_model:
-                try:
-                    sample_embedding = embedding_model.embed_query("Test")
-                    dimension = len(sample_embedding)
-                except:
-                    pass
-            # Create collection with schema that includes required fields
-            schema = {
-                "collection_name": config.collection_name,
-                "fields": [
-                    {"name": "id", "type": "int64", "is_primary": True, "auto_id": True},
-                    {"name": "vector", "type": "float_vector", "params": {"dim": dimension}},
-                    {"name": "content", "type": "varchar", "params": {"max_length": 65535}},
-                    {"name": "note_id", "type": "varchar", "params": {"max_length": 100}},
-                    {"name": "hadm_id", "type": "varchar", "params": {"max_length": 100}},
-                    {"name": "subject_id", "type": "varchar", "params": {"max_length": 100}},
-                    {"name": "section", "type": "varchar", "params": {"max_length": 100}},
-                    {"name": "charttime", "type": "varchar", "params": {"max_length": 100}},
-                    {"name": "storetime", "type": "varchar", "params": {"max_length": 100}}
-                ]
-            }
-
+        # Check if collection exists
+        collections = client.list_collections()
+        print(f"Available collections: {collections}")
+        
+        if config.collection_name not in collections:
+            print(f"Collection {config.collection_name} not found. You need to create and populate it first.")
+            # We'll just create an empty collection as a fallback
             try:
-                client.create_collection(schema)
-                logger.info(f"Successfully created collection with schema")
-            except Exception as e:
-                # Fallback to simple creation if schema creation fails
-                logger.warning(f"Error creating collection with schema: {e}")
+                # Get embedding dimension
+                dimension = 384  # Default dimension
+                if embedding_model:
+                    try:
+                        sample_embedding = embedding_model.embed_query("Test")
+                        dimension = len(sample_embedding)
+                        print(f"Using embedding dimension: {dimension}")
+                    except Exception as e:
+                        print(f"Error determining embedding dimension: {e}")
+                
+                # Create collection
+                print(f"Creating empty collection {config.collection_name} with dimension {dimension}")
                 client.create_collection(
                     collection_name=config.collection_name,
                     dimension=dimension
                 )
-
-            # Create index for vector search
-            try:
-                index_params = {
-                    "metric_type": "COSINE",
-                    "index_type": "AUTOINDEX",
-                    "params": {}
-                }
-                client.create_index(
-                    collection_name=config.collection_name,
-                    field_name="vector",
-                    index_params=index_params
-                )
-                logger.info("Created index for vector search")
             except Exception as e:
-                logger.warning(f"Error creating index: {e}")
-
-            # Load collection to make it searchable
-            try:
-                client.load_collection(config.collection_name)
-                logger.info(f"Loaded collection {config.collection_name}")
-            except Exception as e:
-                logger.warning(f"Error loading collection: {e}")
-                
-            
-            # If we have document chunks, add them to the collection
-            if document_chunks:
-                logger.info(f"Adding {len(document_chunks)} document chunks to Milvus Lite collection")
-                batch_size = 100
-                inserted_count = 0
-                
-                for i in range(0, len(document_chunks), batch_size):
-                    batch = document_chunks[i:i+batch_size]
-                    data = []
-                    
-                    for chunk in batch:
-                        try:
-                            # Get vector using embedding model
-                            content = chunk.get("content", "")
-                            if not content:
-                                logger.warning("Empty content in chunk, skipping")
-                                continue
-                                
-                            embedding = embedding_model.embed_query(content)
-                            
-                            # Prepare document data - needs to match the schema
-                            doc_data = {
-                                "vector": embedding,
-                                "content": content,
-                                "note_id": str(chunk["metadata"].get("note_id", "")),
-                                "hadm_id": str(chunk["metadata"].get("hadm_id", "")),
-                                "subject_id": str(chunk["metadata"].get("subject_id", "")),
-                                "section": chunk.get("section", "")
-                            }
-                            
-                            # Add optional fields if they exist
-                            if "charttime" in chunk["metadata"]:
-                                doc_data["charttime"] = str(chunk["metadata"]["charttime"])
-                            if "storetime" in chunk["metadata"]:
-                                doc_data["storetime"] = str(chunk["metadata"]["storetime"])
-                                
-                            data.append(doc_data)
-                        except Exception as e:
-                            logger.error(f"Error processing chunk for insertion: {e}")
-                    
-                    # Insert batch if we have data
-                    if data:
-                        try:
-                            insert_result = client.insert(config.collection_name, data)
-                            if insert_result and "insert_count" in insert_result:
-                                inserted_count += insert_result["insert_count"]
-                                logger.info(f"Inserted batch of {insert_result['insert_count']} documents")
-                            else:
-                                logger.warning(f"Insert result doesn't contain count: {insert_result}")
-                        except Exception as e:
-                            logger.error(f"Error inserting batch: {e}")
-                
-                logger.info(f"Inserted total of {inserted_count} documents into Milvus Lite")
-                
-                # Flush to ensure data is persisted
-                try:
-                    client.flush()
-                    logger.info("Flushed collection to persist data")
-                except Exception as e:
-                    logger.warning(f"Error flushing collection: {e}")
-                    
-                # Verify insertion
-                try:
-                    stats = client.get_collection_stats(config.collection_name)
-                    logger.info(f"Collection stats after insertion: {stats}")
-                except Exception as e:
-                    logger.warning(f"Error getting collection stats: {e}")
-            
-            # Create retriever - fixed the attribute check
+                print(f"Error creating empty collection: {e}")
+        
+        # Create appropriate retriever based on config
         if hasattr(config, 'use_hybrid') and config.use_hybrid:
-            return HybridMedicalRetriever(None, config)
+            print("Creating hybrid medical retriever with Milvus Lite")
+            retriever = HybridMedicalRetriever(None, config)
         else:
-            return BasicMedicalRetriever(None, config, embedding_model)
-            
+            print("Creating basic medical retriever with Milvus Lite")
+            retriever = BasicMedicalRetriever(None, config, embedding_model)
+        
+        return retriever
+    else:
+        # Use standard Milvus with vectorstore
+        from backend.vectorstores.document_embedding import (
+            save_basic_chunks,
+            save_detailed_chunks
+        )
+        
+        # Create vectorstore if we have document chunks
+        vectorstore = None
+        if document_chunks and embedding_model:
+            # Create vectorstore using existing implementation
+            if hasattr(config, 'use_medical_sections') and config.use_medical_sections:
+                vectorstore, _ = save_detailed_chunks(
+                    document_chunks,
+                    embedding_model,
+                    config.collection_name,
+                    enable_hybrid=hasattr(config, 'use_hybrid') and config.use_hybrid
+                )
+            else:
+                vectorstore, _ = save_basic_chunks(
+                    document_chunks,
+                    embedding_model,
+                    config.collection_name
+                )
+        
+        # Create retriever based on vectorstore
+        if hasattr(config, 'use_hybrid') and config.use_hybrid:
+            return HybridMedicalRetriever(vectorstore, config)
+        else:
+            return BasicMedicalRetriever(vectorstore, config, embedding_model)
