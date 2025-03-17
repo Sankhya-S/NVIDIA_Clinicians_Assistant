@@ -605,11 +605,11 @@ class RAGProcessor:
                     continue
                 
                 metadata = {
-                    "note_id": note.get("note_id"),
-                    "subject_id": note.get("subject_id"),
-                    "hadm_id": note.get("hadm_id"),
-                    "charttime": note.get("charttime"),
-                    "storetime": note.get("storetime"),
+                    "note_id": note.get("note_id", ""),  # Ensure empty string if None
+                    "subject_id": note.get("subject_id", ""),
+                    "hadm_id": note.get("hadm_id", ""),
+                    "charttime": note.get("charttime", ""),
+                    "storetime": note.get("storetime", ""),
                     "source_type": "json"
                 }
                 
@@ -638,6 +638,8 @@ class RAGProcessor:
                     
             except Exception as e:
                 print(f"Error processing medical note {json_path}: {e}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
                 continue
     
         if not all_chunks:
@@ -653,7 +655,7 @@ class RAGProcessor:
             if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite:
                 print(f"\nSetting up {'hybrid' if enable_hybrid else 'standard'} search with Milvus Lite...")
                 
-                # Configure retriever for Milvus Lite - REMOVE problematic parameters
+                # Configure retriever for Milvus Lite
                 retriever_config = RetrieverConfig(
                     collection_name=self.collection_name,
                     use_milvus_lite=True,
@@ -662,17 +664,51 @@ class RAGProcessor:
                     use_contextual_compression=self.use_contextual_compression,
                     use_multi_query=self.use_multi_query,
                     compression_similarity_threshold=self.compression_similarity_threshold,
-                    llm=self.chat_model
+                    llm=self.chat_model,
+                    k_documents=self.k_documents,
+                    score_threshold=0.6  # Lower threshold for better retrieval
                 )
+                
+                # Print detailed chunk information for debugging
+                print(f"\nDebug: First few chunks structure:")
+                for i, chunk in enumerate(all_chunks[:3]):
+                    print(f"Chunk {i}:")
+                    print(f"- Content length: {len(chunk.get('content', ''))}")
+                    print(f"- Metadata: {chunk.get('metadata', {})}")
+                    print(f"- Section: {chunk.get('section', '')}")
+                    print("---")
                 
                 # Create retriever with Milvus Lite
-                self.vectorstore = create_retriever(
-                    all_chunks,
-                    self.embedding_model,
-                    retriever_config
-                )
-                
+                try:
+                    print(f"Creating retriever with {len(all_chunks)} chunks...")
+                    self.vectorstore = create_retriever(
+                        all_chunks,
+                        self.embedding_model,
+                        retriever_config
+                    )
+                    
+                    # Verify data was inserted by checking collection stats
+                    from pymilvus import MilvusClient
+                    try:
+                        client = MilvusClient(self.milvus_lite_db)
+                        stats = client.get_collection_stats(self.collection_name)
+                        row_count = stats.get('row_count', 0)
+                        print(f"Collection stats after creation: {stats}")
+                        print(f"Total documents in collection: {row_count}")
+                        
+                        if row_count == 0:
+                            print("WARNING: No documents were inserted into the collection!")
+                    except Exception as e:
+                        print(f"Error checking collection stats: {e}")
+                except Exception as e:
+                    print(f"Error creating retriever: {e}")
+                    import traceback
+                    print(f"Traceback: {traceback.format_exc()}")
+                    raise
+                    
                 print(f"Successfully set up Milvus Lite retriever with collection: {self.collection_name}")
+                
+        
             
             elif enable_hybrid:
                 print("\nDEBUG: Setting up hybrid search for JSONs...")
