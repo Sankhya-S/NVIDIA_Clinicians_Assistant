@@ -326,52 +326,47 @@ def insert_documents_into_milvus_lite(
     logger = logging.getLogger(__name__)
     print(f"Inserting {len(document_chunks)} chunks into Milvus Lite collection {collection_name}")
     
-    # First, check if collection exists
-    if collection_name not in client.list_collections():
-        print(f"Collection {collection_name} doesn't exist, creating it now...")
-        
-        # Get embedding dimension
-        sample_text = "Sample text for dimension detection"
-        sample_embedding = embedding_model.embed_query(sample_text)
-        dimension = len(sample_embedding)
-        print(f"Using embedding dimension: {dimension}")
-        
-        # Create collection with explicit schema
-        collection_schema = {
-            "collection_name": collection_name,
-            "fields": [
-                {"name": "id", "type": "int64", "is_primary": True, "auto_id": True},
-                {"name": "vector", "type": "float_vector", "params": {"dim": dimension}},
-                {"name": "content", "type": "varchar", "params": {"max_length": 65535}},
-                {"name": "note_id", "type": "varchar", "params": {"max_length": 100}},
-                {"name": "hadm_id", "type": "varchar", "params": {"max_length": 100}},
-                {"name": "subject_id", "type": "varchar", "params": {"max_length": 100}},
-                {"name": "section", "type": "varchar", "params": {"max_length": 100}}
-            ]
-        }
-        
-        try:
-            client.create_collection(collection_schema)
-            print(f"Successfully created collection {collection_name}")
-        except Exception as e:
-            print(f"Error creating collection with schema: {e}")
-            # Fallback to simpler creation
-            client.create_collection(
-                collection_name=collection_name,
-                dimension=dimension
-            )
-        
-        # Create an index for vector search
-        try:
-            client.create_index(
-                collection_name=collection_name,
-                field_name="vector",
-                index_type="FLAT",
-                metric_type="COSINE"
-            )
-            print("Created search index")
-        except Exception as e:
-            print(f"Error creating index: {e}")
+    # Check if collection exists
+    collections = client.list_collections()
+    
+    # Drop existing collection to ensure clean start
+    if collection_name in collections:
+        print(f"Collection {collection_name} already exists. Dropping it for clean creation.")
+        client.drop_collection(collection_name)
+    
+    # Get embedding dimension
+    sample_text = "Sample text for dimension detection"
+    sample_embedding = embedding_model.embed_query(sample_text)
+    dimension = len(sample_embedding)
+    print(f"Using embedding dimension: {dimension}")
+    
+    # Create collection with SIMPLE approach first (this is more reliable)
+    print(f"Creating collection {collection_name} with dimension {dimension}")
+    try:
+        # Use the simpler creation method which auto-generates the ID field
+        client.create_collection(
+            collection_name=collection_name,
+            dimension=dimension,
+            auto_id=True  # This ensures auto-generation of IDs
+        )
+        print("Successfully created collection")
+    except Exception as e:
+        print(f"Error creating collection: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return 0
+    
+    # Create an index for vector search
+    try:
+        client.create_index(
+            collection_name=collection_name,
+            field_name="vector",
+            index_type="AUTOINDEX",
+            metric_type="COSINE"
+        )
+        print("Created search index")
+    except Exception as e:
+        print(f"Error creating index: {e}")
     
     # Load the collection
     try:
@@ -379,6 +374,23 @@ def insert_documents_into_milvus_lite(
         print(f"Loaded collection {collection_name}")
     except Exception as e:
         print(f"Error loading collection: {e}")
+    
+    # Get collection schema to understand its structure
+    try:
+        schema = client.describe_collection(collection_name)
+        print(f"Collection schema: {schema}")
+        
+        # Check field names to confirm id field exists
+        field_names = [field['name'] for field in schema.get('fields', [])]
+        print(f"Field names in schema: {field_names}")
+        
+        # Check if ID field is primary and auto-generated
+        for field in schema.get('fields', []):
+            if field['name'] == 'id':
+                print(f"ID field properties: {field}")
+                
+    except Exception as e:
+        print(f"Error getting collection schema: {e}")
     
     # Insert documents in batches
     batch_size = 50
@@ -404,7 +416,7 @@ def insert_documents_into_milvus_lite(
                 # Get metadata
                 metadata = chunk.get("metadata", {})
                 
-                # Create entity for insertion
+                # Create entity for insertion - DO NOT include ID field
                 entity = {
                     "vector": embedding,
                     "content": content,
@@ -443,10 +455,12 @@ def insert_documents_into_milvus_lite(
     
     # Flush to ensure data is written
     try:
-        client.flush()
+        client.flush([collection_name])  # Corrected flush method call
         print("Flushed collection to ensure data persistence")
     except Exception as e:
         print(f"Error flushing collection: {e}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
     
     # Verify insertion
     try:
