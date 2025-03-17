@@ -315,6 +315,176 @@ class HybridMedicalRetriever(BaseMedicalRetriever):
                 k=k
             )
 
+def insert_documents_into_milvus_lite(
+    client, 
+    collection_name: str, 
+    document_chunks: list, 
+    embedding_model
+):
+    """Directly insert document chunks into Milvus Lite collection."""
+    import logging
+    logger = logging.getLogger(__name__)
+    print(f"Inserting {len(document_chunks)} chunks into Milvus Lite collection {collection_name}")
+    
+    # First, check if collection exists
+    if collection_name not in client.list_collections():
+        print(f"Collection {collection_name} doesn't exist, creating it now...")
+        
+        # Get embedding dimension
+        sample_text = "Sample text for dimension detection"
+        sample_embedding = embedding_model.embed_query(sample_text)
+        dimension = len(sample_embedding)
+        print(f"Using embedding dimension: {dimension}")
+        
+        # Create collection with explicit schema
+        collection_schema = {
+            "collection_name": collection_name,
+            "fields": [
+                {"name": "id", "type": "int64", "is_primary": True, "auto_id": True},
+                {"name": "vector", "type": "float_vector", "params": {"dim": dimension}},
+                {"name": "content", "type": "varchar", "params": {"max_length": 65535}},
+                {"name": "note_id", "type": "varchar", "params": {"max_length": 100}},
+                {"name": "hadm_id", "type": "varchar", "params": {"max_length": 100}},
+                {"name": "subject_id", "type": "varchar", "params": {"max_length": 100}},
+                {"name": "section", "type": "varchar", "params": {"max_length": 100}}
+            ]
+        }
+        
+        try:
+            client.create_collection(collection_schema)
+            print(f"Successfully created collection {collection_name}")
+        except Exception as e:
+            print(f"Error creating collection with schema: {e}")
+            # Fallback to simpler creation
+            client.create_collection(
+                collection_name=collection_name,
+                dimension=dimension
+            )
+        
+        # Create an index for vector search
+        try:
+            client.create_index(
+                collection_name=collection_name,
+                field_name="vector",
+                index_type="FLAT",
+                metric_type="COSINE"
+            )
+            print("Created search index")
+        except Exception as e:
+            print(f"Error creating index: {e}")
+    
+    # Load the collection
+    try:
+        client.load_collection(collection_name)
+        print(f"Loaded collection {collection_name}")
+    except Exception as e:
+        print(f"Error loading collection: {e}")
+    
+    # Insert documents in batches
+    batch_size = 50
+    total_inserted = 0
+    
+    for i in range(0, len(document_chunks), batch_size):
+        batch = document_chunks[i:i+batch_size]
+        print(f"Processing batch {i//batch_size + 1}/{(len(document_chunks)-1)//batch_size + 1}")
+        
+        # Prepare data for insertion
+        data = []
+        for chunk in batch:
+            try:
+                # Get content and create embedding
+                content = chunk.get("content", "")
+                if not content:
+                    print("Empty content in chunk, skipping")
+                    continue
+                
+                # Create embedding
+                embedding = embedding_model.embed_query(content)
+                
+                # Get metadata
+                metadata = chunk.get("metadata", {})
+                
+                # Create entity for insertion
+                entity = {
+                    "vector": embedding,
+                    "content": content,
+                    "note_id": str(metadata.get("note_id", "")),
+                    "hadm_id": str(metadata.get("hadm_id", "")),
+                    "subject_id": str(metadata.get("subject_id", "")),
+                    "section": str(chunk.get("section", ""))
+                }
+                
+                data.append(entity)
+            except Exception as e:
+                print(f"Error processing chunk: {e}")
+                continue
+        
+        # Insert batch if we have data
+        if data:
+            try:
+                print(f"Inserting batch of {len(data)} documents")
+                # Debug data format
+                print(f"First entity fields: {list(data[0].keys())}")
+                print(f"Vector dimension: {len(data[0]['vector'])}")
+                
+                # Use insert method
+                result = client.insert(collection_name, data)
+                print(f"Insertion result: {result}")
+                
+                if isinstance(result, dict) and "insert_count" in result:
+                    total_inserted += result["insert_count"]
+                    print(f"Batch inserted: {result['insert_count']} documents")
+                else:
+                    print(f"Unexpected insert result format: {result}")
+            except Exception as e:
+                print(f"Error inserting batch: {e}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
+    
+    # Flush to ensure data is written
+    try:
+        client.flush()
+        print("Flushed collection to ensure data persistence")
+    except Exception as e:
+        print(f"Error flushing collection: {e}")
+    
+    # Verify insertion
+    try:
+        stats = client.get_collection_stats(collection_name)
+        row_count = stats.get("row_count", 0)
+        print(f"Collection stats after insertion: {stats}")
+        print(f"Total documents in collection: {row_count}")
+        
+        if row_count > 0:
+            print("Documents successfully inserted!")
+            
+            # Sample query to verify searchability
+            try:
+                print("Testing search functionality:")
+                sample_query = "patient"
+                sample_vector = embedding_model.embed_query(sample_query)
+                
+                search_results = client.search(
+                    collection_name=collection_name,
+                    data=[sample_vector],
+                    limit=5,
+                    output_fields=["content", "note_id"]
+                )
+                
+                if search_results and len(search_results) > 0 and len(search_results[0]) > 0:
+                    print(f"Search successful! Found {len(search_results[0])} results")
+                    print(f"First result: {search_results[0][0]}")
+                else:
+                    print("Search returned no results")
+            except Exception as e:
+                print(f"Error testing search: {e}")
+        else:
+            print("WARNING: No documents inserted!")
+    except Exception as e:
+        print(f"Error verifying insertion: {e}")
+    
+    return total_inserted
+
 def create_retriever(
     document_chunks=None,
     embedding_model=None,
