@@ -199,7 +199,7 @@ class BasicMedicalRetriever(BaseMedicalRetriever):
                 if search_results and len(search_results) > 0:
                     for hit in search_results[0]:
                         # Print the full hit for debugging
-                        print(f"Debug - Search hit: {hit}")
+                        # print(f"Debug - Search hit: {hit}")
                         
                         # Extract content first, ensuring it's present
                         content = hit.get("content", "")
