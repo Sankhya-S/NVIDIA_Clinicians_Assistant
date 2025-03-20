@@ -130,11 +130,11 @@ class BasicMedicalRetriever(BaseMedicalRetriever):
 
 
     def get_relevant_documents(
-        self,
-        query: str,
-        filters: Optional[Dict[str, Any]] = None,
-        **kwargs
-    ) -> List[Document]:
+    self,
+    query: str,
+    filters: Optional[Dict[str, Any]] = None,
+    **kwargs
+) -> List[Document]:
         """Retrieve documents using basic vector similarity.
         
         Args:
@@ -173,37 +173,79 @@ class BasicMedicalRetriever(BaseMedicalRetriever):
                             filter_parts.append(f"{key} == {value}")
                     filter_expr = " && ".join(filter_parts)
                 
-                # Search in Milvus Lite
+                # Define all output fields explicitly - IMPORTANT for content retrieval
+                output_fields = [
+                    "content",      # This is critical - make sure content is included
+                    "note_id", 
+                    "hadm_id", 
+                    "subject_id", 
+                    "section", 
+                    "charttime", 
+                    "storetime"
+                ]
+                
+                # Search in Milvus Lite with explicit output fields
+                print(f"Searching Milvus Lite collection with k={k}, filter={filter_expr}")
                 search_results = self.milvus_client.search(
                     collection_name=self.collection_name,
                     data=[query_vector],
                     filter=filter_expr,
                     limit=k,
-                    output_fields=["content", "note_id", "hadm_id", "subject_id", "section", "charttime", "storetime"]
+                    output_fields=output_fields  # Explicitly defined fields
                 )
                 
                 # Convert Milvus Lite results to Documents
                 documents = []
                 if search_results and len(search_results) > 0:
                     for hit in search_results[0]:
+                        # Print the full hit for debugging
+                        print(f"Debug - Search hit: {hit}")
+                        
+                        # Extract content first, ensuring it's present
+                        content = hit.get("content", "")
+                        if not content and "entity" in hit and isinstance(hit["entity"], dict):
+                            # Sometimes content is in the entity field
+                            content = hit["entity"].get("content", "")
+                        
                         metadata = {
                             "note_id": hit.get("note_id", ""),
                             "hadm_id": hit.get("hadm_id", ""),
                             "subject_id": hit.get("subject_id", ""),
                             "section": hit.get("section", ""),
-                            "score": hit.get("score", 0.0)
+                            "score": hit.get("distance", 0.0)  # Note: May be "score" or "distance"
                         }
+                        
+                        # Check if fields are in entity structure
+                        if "entity" in hit and isinstance(hit["entity"], dict):
+                            if not metadata["note_id"]:
+                                metadata["note_id"] = hit["entity"].get("note_id", "")
+                            if not metadata["hadm_id"]:
+                                metadata["hadm_id"] = hit["entity"].get("hadm_id", "")
+                            if not metadata["subject_id"]:
+                                metadata["subject_id"] = hit["entity"].get("subject_id", "")
+                            if not metadata["section"]:
+                                metadata["section"] = hit["entity"].get("section", "")
+                        
                         # Add optional fields if present
                         if "charttime" in hit:
                             metadata["charttime"] = hit["charttime"]
+                        elif "entity" in hit and "charttime" in hit["entity"]:
+                            metadata["charttime"] = hit["entity"]["charttime"]
+                            
                         if "storetime" in hit:
                             metadata["storetime"] = hit["storetime"]
+                        elif "entity" in hit and "storetime" in hit["entity"]:
+                            metadata["storetime"] = hit["entity"]["storetime"]
                         
-                        doc = Document(
-                            page_content=hit.get("content", ""),
-                            metadata=metadata
-                        )
-                        documents.append(doc)
+                        # Create the document only if content is not empty
+                        if content:
+                            doc = Document(
+                                page_content=content,
+                                metadata=metadata
+                            )
+                            documents.append(doc)
+                        else:
+                            print(f"Warning: Empty content in search result, skipping: {hit}")
                 
                 logger.info(f"Retrieved {len(documents)} documents using Milvus Lite")
                 return documents
@@ -219,6 +261,8 @@ class BasicMedicalRetriever(BaseMedicalRetriever):
                 
         except Exception as e:
             logger.error(f"Error in basic retrieval: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
     def get_relevant_documents_with_scores(
@@ -315,13 +359,68 @@ class HybridMedicalRetriever(BaseMedicalRetriever):
                 k=k
             )
 
+def create_index_properly(client, collection_name, dimension):
+    """Create a proper index for Milvus Lite collection."""
+    try:
+        # Define proper index parameters
+        index_params = {
+            "metric_type": "COSINE",
+            "index_type": "AUTOINDEX",
+            "params": {}
+        }
+        
+        # Create the index with proper params
+        client.create_index(
+            collection_name=collection_name,
+            field_name="vector",
+            index_params=index_params
+        )
+        print(f"Successfully created index for collection {collection_name}")
+        return True
+    except Exception as e:
+        print(f"Error creating index: {e}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        return False
+
+
+def flush_collection_properly(client, collection_name):
+    """Properly flush a Milvus Lite collection."""
+    try:
+        # Try different flush approaches based on client version
+        try:
+            # First try with collection name as string (newer clients)
+            client.flush(collection_name)
+            print(f"Successfully flushed collection {collection_name} (string method)")
+        except Exception as e1:
+            try:
+                # Then try with no arguments (some client versions)
+                client.flush()
+                print(f"Successfully flushed all collections (no args method)")
+            except Exception as e2:
+                # As a last resort, try other variations
+                print(f"Standard flush methods failed, trying alternatives")
+                try:
+                    # Some versions expect just the string
+                    conn = getattr(client, '_connection', None)
+                    if conn and hasattr(conn, 'flush'):
+                        conn.flush(collection_name)
+                        print(f"Successfully flushed via connection object")
+                except Exception as e3:
+                    print(f"All flush methods failed: {e3}")
+
+        return True
+    except Exception as e:
+        print(f"Error in flush_collection_properly: {e}")
+        return False
+
 def insert_documents_into_milvus_lite(
     client, 
     collection_name: str, 
     document_chunks: list, 
     embedding_model
 ):
-    """Directly insert document chunks into Milvus Lite collection."""
+    """Directly insert document chunks into Milvus Lite collection with fixed index and flush."""
     import logging
     logger = logging.getLogger(__name__)
     print(f"Inserting {len(document_chunks)} chunks into Milvus Lite collection {collection_name}")
@@ -356,17 +455,8 @@ def insert_documents_into_milvus_lite(
         print(traceback.format_exc())
         return 0
     
-    # Create an index for vector search
-    try:
-        client.create_index(
-            collection_name=collection_name,
-            field_name="vector",
-            index_type="AUTOINDEX",
-            metric_type="COSINE"
-        )
-        print("Created search index")
-    except Exception as e:
-        print(f"Error creating index: {e}")
+    # Create index using the fixed function
+    create_index_properly(client, collection_name, dimension)
     
     # Load the collection
     try:
@@ -453,14 +543,8 @@ def insert_documents_into_milvus_lite(
                 import traceback
                 print(f"Traceback: {traceback.format_exc()}")
     
-    # Flush to ensure data is written
-    try:
-        client.flush([collection_name])  # Corrected flush method call
-        print("Flushed collection to ensure data persistence")
-    except Exception as e:
-        print(f"Error flushing collection: {e}")
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}")
+    # Flush to ensure data is written - use the fixed flush function
+    flush_collection_properly(client, collection_name)
     
     # Verify insertion
     try:
@@ -482,12 +566,26 @@ def insert_documents_into_milvus_lite(
                     collection_name=collection_name,
                     data=[sample_vector],
                     limit=5,
-                    output_fields=["content", "note_id"]
+                    output_fields=["content", "note_id", "hadm_id", "subject_id", "section"]
                 )
                 
                 if search_results and len(search_results) > 0 and len(search_results[0]) > 0:
                     print(f"Search successful! Found {len(search_results[0])} results")
-                    print(f"First result: {search_results[0][0]}")
+                    print(f"First result structure: {search_results[0][0].keys()}")
+                    
+                    # Check if content is directly available or nested in entity
+                    first_hit = search_results[0][0]
+                    if "content" in first_hit:
+                        print(f"Content directly available in hit")
+                        content_preview = first_hit["content"][:100] + "..." if len(first_hit["content"]) > 100 else first_hit["content"]
+                        print(f"Content preview: {content_preview}")
+                    elif "entity" in first_hit and "content" in first_hit["entity"]:
+                        print(f"Content available in entity property")
+                        content_preview = first_hit["entity"]["content"][:100] + "..." if len(first_hit["entity"]["content"]) > 100 else first_hit["entity"]["content"]
+                        print(f"Content preview: {content_preview}")
+                    else:
+                        print(f"Warning: Content not found in search result")
+                        print(f"Available fields: {first_hit.keys()}")
                 else:
                     print("Search returned no results")
             except Exception as e:
