@@ -519,13 +519,13 @@ class RAGProcessor:
                 print(f"\nSetting up {'hybrid' if enable_hybrid else 'standard'} search with Milvus Lite...")
                 
                 # Print debug information about chunks
-                print(f"\nDebug: First few chunks structure:")
-                for i, chunk in enumerate(all_chunks[:3]):
-                    print(f"Chunk {i}:")
-                    print(f"- Content length: {len(chunk.get('content', ''))}")
-                    print(f"- Metadata: {chunk.get('metadata', {})}")
-                    print(f"- Section: {chunk.get('section', '')}")
-                    print("---")
+                # print(f"\nDebug: First few chunks structure:")
+                # for i, chunk in enumerate(all_chunks[:3]):
+                #     print(f"Chunk {i}:")
+                #     print(f"- Content length: {len(chunk.get('content', ''))}")
+                #     print(f"- Metadata: {chunk.get('metadata', {})}")
+                #     print(f"- Section: {chunk.get('section', '')}")
+                #     print("---")
                 
                 # Use our direct insertion function for Milvus Lite
                 from pymilvus import MilvusClient
@@ -881,11 +881,11 @@ def main():
                 print("\nProcessing question...")
                 response = processor.query(question)
                 print("\nAnswer:", response['result'])
-                print("\nSource Documents:")
-                for i, doc in enumerate(response['source_documents'], 1):
-                    print(f"\nSource {i}:")
-                    print(f"Content: {doc.page_content[:200]}...")
-                    print(f"Metadata: {doc.metadata}")
+                # print("\nSource Documents:")
+                # for i, doc in enumerate(response['source_documents'], 1):
+                #     print(f"\nSource {i}:")
+                #     print(f"Content: {doc.page_content[:200]}...")
+                #     print(f"Metadata: {doc.metadata}")
             except Exception as e:
                 print(f"Error processing question: {e}")
             
