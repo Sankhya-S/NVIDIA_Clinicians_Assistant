@@ -518,27 +518,6 @@ class RAGProcessor:
             if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite:
                 print(f"\nSetting up {'hybrid' if enable_hybrid else 'standard'} search with Milvus Lite...")
                 
-                # Print debug information about chunks
-                # print(f"\nDebug: First few chunks structure:")
-                # for i, chunk in enumerate(all_chunks[:3]):
-                #     print(f"Chunk {i}:")
-                #     print(f"- Content length: {len(chunk.get('content', ''))}")
-                #     print(f"- Metadata: {chunk.get('metadata', {})}")
-                #     print(f"- Section: {chunk.get('section', '')}")
-                #     print("---")
-                
-                # Use our direct insertion function for Milvus Lite
-                from pymilvus import MilvusClient
-                client = MilvusClient(self.milvus_lite_db)
-                
-                # Direct insertion approach
-                insert_documents_into_milvus_lite(
-                    client,
-                    self.collection_name,
-                    all_chunks,
-                    self.embedding_model
-                )
-                
                 # Configure retriever for Milvus Lite
                 retriever_config = RetrieverConfig(
                     collection_name=self.collection_name,
@@ -550,19 +529,23 @@ class RAGProcessor:
                     compression_similarity_threshold=self.compression_similarity_threshold,
                     llm=self.chat_model,
                     k_documents=self.k_documents,
-                    score_threshold=0.6  # Lower threshold for better retrieval
+                    score_threshold=0.6,  # Lower threshold for better retrieval
+                    # Add hybrid search config if enabled
+                    use_hybrid=enable_hybrid,
+                    dense_weight=0.4,
+                    sparse_weight=0.3,
+                    rerank_weight=0.3
                 )
                 
                 # Create retriever with Milvus Lite
                 try:
-                    # We're not passing all_chunks here since we've already inserted them
                     self.vectorstore = create_retriever(
-                        None,  # Don't pass documents again
+                        all_chunks,  # Pass all chunks for insertion
                         self.embedding_model,
                         retriever_config
                     )
                     
-                    print(f"Successfully set up Milvus Lite retriever with collection: {self.collection_name}")
+                    print(f"Successfully set up {'hybrid' if enable_hybrid else 'standard'} Milvus Lite retriever with collection: {self.collection_name}")
                 except Exception as e:
                     print(f"Error creating retriever: {e}")
                     import traceback

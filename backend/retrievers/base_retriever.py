@@ -598,35 +598,35 @@ def insert_documents_into_milvus_lite(
     return total_inserted
 
 def create_retriever(
-    document_chunks=None,
-    embedding_model=None,
-    config: Optional[RetrieverConfig] = None
+    document_chunks: Optional[List[Dict]],
+    embedding_model,
+    config: RetrieverConfig
 ) -> BaseMedicalRetriever:
-    """Factory function to create the appropriate retriever."""
-    config = config or RetrieverConfig()
+    """Create appropriate retriever based on configuration"""
     
+    # Check if we're using Milvus Lite
     if config.use_milvus_lite:
-        # Set up Milvus Lite client
+        # Import the new hybrid retriever for Milvus Lite
+        from .hybrid_retriever_lite import HybridMedicalRetrieverLite
+        
+        # Create Milvus Lite client
+        from pymilvus import MilvusClient
         client = MilvusClient(config.milvus_lite_db)
-        print(f"Creating retriever for Milvus Lite collection: {config.collection_name}")
         
         # Check if collection exists
         collections = client.list_collections()
-        print(f"Available collections: {collections}")
-        
         if config.collection_name not in collections:
-            print(f"Collection {config.collection_name} not found. You need to create and populate it first.")
-            # We'll just create an empty collection as a fallback
+            # Create collection
             try:
                 # Get embedding dimension
-                dimension = 384  # Default dimension
-                if embedding_model:
-                    try:
-                        sample_embedding = embedding_model.embed_query("Test")
-                        dimension = len(sample_embedding)
-                        print(f"Using embedding dimension: {dimension}")
-                    except Exception as e:
-                        print(f"Error determining embedding dimension: {e}")
+                dimension = 1024  # Default for BGE-M3
+                try:
+                    sample_text = "Sample text to determine dimensions"
+                    sample_embedding = embedding_model.embed_query(sample_text)
+                    dimension = len(sample_embedding)
+                    print(f"Using embedding dimension: {dimension}")
+                except Exception as e:
+                    print(f"Error determining embedding dimension: {e}")
                 
                 # Create collection
                 print(f"Creating empty collection {config.collection_name} with dimension {dimension}")
@@ -640,12 +640,20 @@ def create_retriever(
         # Create appropriate retriever based on config
         if hasattr(config, 'use_hybrid') and config.use_hybrid:
             print("Creating hybrid medical retriever with Milvus Lite")
-            retriever = HybridMedicalRetriever(None, config)
+            retriever = HybridMedicalRetrieverLite(config)
+            
+            # Insert documents if provided
+            if document_chunks:
+                print(f"Inserting {len(document_chunks)} documents into hybrid search")
+                retriever.hybrid_search.insert_documents(document_chunks)
+            
+            return retriever
         else:
             print("Creating basic medical retriever with Milvus Lite")
             retriever = BasicMedicalRetriever(None, config, embedding_model)
-        
-        return retriever
+            return retriever
+    
+    # Rest of the function for standard Milvus remains unchanged
     else:
         # Use standard Milvus with vectorstore
         from backend.vectorstores.document_embedding import (
