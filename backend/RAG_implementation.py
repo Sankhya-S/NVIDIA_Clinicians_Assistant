@@ -57,8 +57,9 @@ class RAGProcessor:
         self.qa_chain = None
         self.k_documents = 5
 
+        
         self.use_milvus_lite = True
-        self.milvus_lite_db = "./milvus_medical.db"
+        self.milvus_lite_db = "./milvus_medical_M.db"
 
         # New enhanced retrieval settings
         self.use_contextual_compression = True
