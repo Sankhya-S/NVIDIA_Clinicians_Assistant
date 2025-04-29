@@ -19,10 +19,12 @@ class RetrieverConfig:
     k_documents: int = 10
     score_threshold: float = 0.7
 
-    milvus_lite_db: str = "./milvus_medical.db"  # Path to the Milvus Lite DB file
+    milvus_lite_db: str = "./milvus_medical_M.db"  # Path to the Milvus Lite DB file
     collection_name: str = "medical_notes"       # Collection name to use
     use_milvus_lite: bool = False                # Whether to use Milvus Lite instead of regular Milvus
 
+     # Hybrid search flag
+    use_hybrid: bool = False   
     
     # Hybrid search specific settings
     dense_weight: float = 0.4
@@ -35,6 +37,7 @@ class RetrieverConfig:
     use_contextual_compression: bool = False  
     compression_similarity_threshold: float = 0.75  
     llm: Optional[Any] = None #for multi-query retriever
+    embedding_model: Optional[Any] = None
 
 class BaseMedicalRetriever(ABC):
     """Base class defining the interface for medical document retrievers."""
@@ -362,10 +365,10 @@ class HybridMedicalRetriever(BaseMedicalRetriever):
 def create_index_properly(client, collection_name, dimension):
     """Create a proper index for Milvus Lite collection."""
     try:
-        # Define proper index parameters
+        # Define proper index parameters as a dictionary
         index_params = {
-            "metric_type": "COSINE",
-            "index_type": "AUTOINDEX",
+            "metric_type": "IP",  # Use Inner Product as recommended for BGE-M3
+            "index_type": "FLAT",  # Use FLAT instead of AUTOINDEX for better compatibility
             "params": {}
         }
         
@@ -379,10 +382,10 @@ def create_index_properly(client, collection_name, dimension):
         return True
     except Exception as e:
         print(f"Error creating index: {e}")
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}")
-        return False
-
+        print(f"Index params type: {type(index_params)}")
+        # Continue even if index creation fails - Milvus Lite can still work
+        print("Continuing without custom index - Milvus Lite will use default settings")
+        return True  # Return True to continue processing
 
 def flush_collection_properly(client, collection_name):
     """Properly flush a Milvus Lite collection."""
@@ -492,19 +495,48 @@ def insert_documents_into_milvus_lite(
         
         # Prepare data for insertion
         data = []
-        for chunk in batch:
+        for chunk_idx, chunk in enumerate(batch):
             try:
-                # Get content and create embedding
-                content = chunk.get("content", "")
-                if not content:
-                    print("Empty content in chunk, skipping")
+                # Get content and metadata based on document type
+                if isinstance(chunk, dict):
+                    content = chunk.get("content", "")
+                    metadata = chunk.get("metadata", {})
+                    section = chunk.get("section", "")
+                elif hasattr(chunk, 'page_content'):
+                    # Handle LangChain Document objects
+                    content = chunk.page_content
+                    metadata = chunk.metadata
+                    section = metadata.get("section", "")
+                else:
+                    print(f"Skipping chunk {chunk_idx} - unexpected format: {type(chunk)}")
                     continue
                 
-                # Create embedding
-                embedding = embedding_model.embed_query(content)
+                # Skip empty or very short texts
+                if not content or len(content.strip()) < 10:
+                    print(f"Skipping chunk {chunk_idx} - empty or too short content")
+                    continue
                 
-                # Get metadata
-                metadata = chunk.get("metadata", {})
+                # Create embedding - with better error handling
+                try:
+                    embedding = embedding_model.embed_query(content)
+                except Exception as e:
+                    print(f"Error creating embedding for chunk {chunk_idx}: {e}")
+                    # Try with truncated content if original is too long
+                    if len(content) > 8000:
+                        try:
+                            truncated = content[:8000]
+                            print(f"Trying with truncated content (8000 chars)")
+                            embedding = embedding_model.embed_query(truncated)
+                            content = truncated  # Use truncated version
+                        except Exception as e2:
+                            print(f"Error creating embedding even with truncated content: {e2}")
+                            continue
+                    else:
+                        continue
+                
+                # Ensure metadata is a dictionary and convert values to strings
+                if not isinstance(metadata, dict):
+                    metadata = {}
                 
                 # Create entity for insertion - DO NOT include ID field
                 entity = {
@@ -513,21 +545,28 @@ def insert_documents_into_milvus_lite(
                     "note_id": str(metadata.get("note_id", "")),
                     "hadm_id": str(metadata.get("hadm_id", "")),
                     "subject_id": str(metadata.get("subject_id", "")),
-                    "section": str(chunk.get("section", ""))
+                    "section": str(section),
+                    "charttime": str(metadata.get("charttime", "")),  
+                    "storetime": str(metadata.get("storetime", ""))  
                 }
                 
                 data.append(entity)
             except Exception as e:
-                print(f"Error processing chunk: {e}")
+                import traceback
+                print(f"Error processing chunk {chunk_idx}: {e}")
+                print(f"Traceback: {traceback.format_exc()}")
+                if isinstance(chunk, dict):
+                    print(f"Chunk keys: {chunk.keys()}")
                 continue
         
         # Insert batch if we have data
         if data:
             try:
                 print(f"Inserting batch of {len(data)} documents")
-                # Debug data format
-                print(f"First entity fields: {list(data[0].keys())}")
-                print(f"Vector dimension: {len(data[0]['vector'])}")
+                if data:
+                    # Debug data format
+                    print(f"First entity fields: {list(data[0].keys())}")
+                    print(f"Vector dimension: {len(data[0]['vector'])}")
                 
                 # Use insert method
                 result = client.insert(collection_name, data)
@@ -606,51 +645,37 @@ def create_retriever(
     
     # Check if we're using Milvus Lite
     if config.use_milvus_lite:
-        # Import the new hybrid retriever for Milvus Lite
+        # Import the hybrid retriever for Milvus Lite
         from .hybrid_retriever_lite import HybridMedicalRetrieverLite
         
-        # Create Milvus Lite client
-        from pymilvus import MilvusClient
-        client = MilvusClient(config.milvus_lite_db)
-        
-        # Check if collection exists
-        collections = client.list_collections()
-        if config.collection_name not in collections:
-            # Create collection
-            try:
-                # Get embedding dimension
-                dimension = 1024  # Default for BGE-M3
-                try:
-                    sample_text = "Sample text to determine dimensions"
-                    sample_embedding = embedding_model.embed_query(sample_text)
-                    dimension = len(sample_embedding)
-                    print(f"Using embedding dimension: {dimension}")
-                except Exception as e:
-                    print(f"Error determining embedding dimension: {e}")
-                
-                # Create collection
-                print(f"Creating empty collection {config.collection_name} with dimension {dimension}")
-                client.create_collection(
-                    collection_name=config.collection_name,
-                    dimension=dimension
-                )
-            except Exception as e:
-                print(f"Error creating empty collection: {e}")
+        print(f"DEBUG: Creating retriever with Milvus Lite DB: {config.milvus_lite_db}")
+        print(f"DEBUG: Collection name: {config.collection_name}")
+        print(f"DEBUG: use_hybrid flag: {config.use_hybrid}")
         
         # Create appropriate retriever based on config
         if hasattr(config, 'use_hybrid') and config.use_hybrid:
-            print("Creating hybrid medical retriever with Milvus Lite")
+            print("DEBUG: Creating hybrid medical retriever with Milvus Lite")
             retriever = HybridMedicalRetrieverLite(config)
             
             # Insert documents if provided
             if document_chunks:
-                print(f"Inserting {len(document_chunks)} documents into hybrid search")
-                retriever.hybrid_search.insert_documents(document_chunks)
+                print(f"DEBUG: Inserting {len(document_chunks)} documents into Milvus Lite")
+                insertion_success = retriever.hybrid_search.insert_documents(document_chunks)
+                print(f"DEBUG: Document insertion success: {insertion_success}")
             
             return retriever
         else:
-            print("Creating basic medical retriever with Milvus Lite")
+            print("DEBUG: Creating basic medical retriever with Milvus Lite")
+            print("DEBUG: Using embedding model type:", type(embedding_model))
             retriever = BasicMedicalRetriever(None, config, embedding_model)
+            
+            # Insert documents if provided and we're using basic retriever
+            if document_chunks:
+                print(f"DEBUG: Inserting {len(document_chunks)} documents using insert_documents_into_milvus_lite")
+                from pymilvus import MilvusClient
+                client = MilvusClient(config.milvus_lite_db)
+                insert_documents_into_milvus_lite(client, config.collection_name, document_chunks, embedding_model)
+            
             return retriever
     
     # Rest of the function for standard Milvus remains unchanged
@@ -679,8 +704,74 @@ def create_retriever(
                     config.collection_name
                 )
         
-        # Create retriever based on vectorstore
         if hasattr(config, 'use_hybrid') and config.use_hybrid:
-            return HybridMedicalRetriever(vectorstore, config)
+            return HybridMedicalRetriever(vectorstore, config,embedding_model)
         else:
-            return BasicMedicalRetriever(vectorstore, config, embedding_model)
+            return BasicMedicalRetriever(vectorstore, config)
+
+        
+def improved_document_processing(chunk, chunk_idx, embedding_model):
+    """Improved method to process document chunks with better error handling."""
+    try:
+        # Get content and create embedding
+        if isinstance(chunk, dict):
+            content = chunk.get("content", "")
+            metadata = chunk.get("metadata", {})
+            section = chunk.get("section", "")
+        elif hasattr(chunk, 'page_content'):
+            # Handle LangChain Document objects
+            content = chunk.page_content
+            metadata = chunk.metadata
+            section = metadata.get("section", "")
+        else:
+            print(f"Skipping chunk {chunk_idx} - unexpected format: {type(chunk)}")
+            return None
+        
+        # Skip empty or very short texts
+        if not content or len(content.strip()) < 10:
+            print(f"Skipping chunk {chunk_idx} - empty or too short content")
+            return None
+        
+        # Create embedding - with better error handling
+        try:
+            embedding = embedding_model.embed_query(content)
+        except Exception as e:
+            print(f"Error creating embedding for chunk {chunk_idx}: {e}")
+            # Try with truncated content if original is too long
+            if len(content) > 8000:
+                try:
+                    truncated = content[:8000]
+                    print(f"Trying with truncated content (8000 chars)")
+                    embedding = embedding_model.embed_query(truncated)
+                    content = truncated  # Use truncated version
+                except Exception as e2:
+                    print(f"Error creating embedding even with truncated content: {e2}")
+                    return None
+            else:
+                return None
+        
+        # Ensure metadata is a dictionary and convert values to strings
+        if not isinstance(metadata, dict):
+            metadata = {}
+        
+        # Create entity for insertion - DO NOT include ID field
+        entity = {
+            "vector": embedding,
+            "content": content,
+            "note_id": str(metadata.get("note_id", "")),
+            "hadm_id": str(metadata.get("hadm_id", "")),
+            "subject_id": str(metadata.get("subject_id", "")),
+            "section": str(section),
+            "charttime": str(metadata.get("charttime", "")),  
+            "storetime": str(metadata.get("storetime", ""))  
+        }
+        
+        return entity
+    except Exception as e:
+        import traceback
+        print(f"Error processing chunk {chunk_idx}: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        print(f"Chunk type: {type(chunk)}")
+        if isinstance(chunk, dict):
+            print(f"Chunk keys: {chunk.keys()}")
+        return None

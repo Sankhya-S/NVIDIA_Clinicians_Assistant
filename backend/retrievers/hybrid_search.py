@@ -40,10 +40,7 @@ class EnhancedHybridSearch:
     
     def __init__(self, config: SearchConfig):
         self.config = config
-        self.ef = BGEM3EmbeddingFunction(
-            use_fp16=True,
-            device="cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.ef = embedding_model
         self.reranker = BGERerankFunction(
             device="cuda" if torch.cuda.is_available() else "cpu"
         )

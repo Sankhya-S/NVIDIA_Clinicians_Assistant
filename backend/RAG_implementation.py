@@ -18,7 +18,7 @@ sys.path.append(str(project_root))
 
 
 # Import custom modules
-from model_setup import setup_embedding, setup_chat_model, get_pdf_paths
+from model_setup import setup_embedding, setup_chat_model
 from backend.prompt.prompt import MedicalPrompts
 from backend.processors.document_processor import (
     process_note_sections,
@@ -71,8 +71,8 @@ class RAGProcessor:
         """Process document text using either basic or detailed chunking."""
         if chunk_type == "basic":
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1500,
-                chunk_overlap=300,
+                chunk_size=800,
+                chunk_overlap=150,
                 length_function=len,
                 separators=["\n\n", "\n", " ", ""]
             )
@@ -118,7 +118,7 @@ class RAGProcessor:
                         base_retriever=self.vectorstore._base_retriever
                     )
                     
-                    def get_relevant_docs(query: str) -> List[Document]:
+                    def get_relevant_docs(query):
                         query_str = query["query"] if isinstance(query, dict) else query
                         query_vector = query.get("query_vector") if isinstance(query, dict) else None
                         
@@ -139,7 +139,7 @@ class RAGProcessor:
                     print("Enhanced Milvus Lite retriever configured with compression")
                 else:
                     # Original Milvus Lite retriever code
-                    def get_relevant_docs(query: str) -> List[Document]:
+                    def get_relevant_docs(query):
                         query_str = query["query"] if isinstance(query, dict) else query
                         query_vector = query.get("query_vector") if isinstance(query, dict) else None
                         
@@ -169,56 +169,87 @@ class RAGProcessor:
                             query_vector = query.get("query_vector") if isinstance(query, dict) else None
                             
                             # Generate multiple query variations using the LLM
-                            prompt = f"""
-                            Generate three different versions of the following query to retrieve relevant medical information. 
-                            Make each version focus on different relevant medical aspects.
-                            
-                            Original query: {query_str}
-                            
-                            Return only the three alternative queries, one per line.
-                            """
+                            prompt = self.medical_prompts.get_multi_query_prompt(query_str)
                             
                             try:
                                 variations_response = self.chat_model.predict(prompt)
-                                query_variations = [line.strip() for line in variations_response.split('\n') if line.strip()]
                                 
-                                # Make sure we have at least the original query
-                                if not query_variations:
-                                    query_variations = [query_str]
-                                else:
-                                    # Always include the original query
+                                # Parse the response to extract only the actual query variations
+                                query_variations = []
+                                
+                                # Split the response by lines
+                                lines = variations_response.strip().split('\n')
+                                
+                                # Filter out lines that are not actual queries
+                                for line in lines:
+                                    line = line.strip()
+                                    # Skip empty lines or lines that look like instructions/headers
+                                    if not line or "Here are" in line or "alternative" in line:
+                                        continue
+                                        
+                                    # If line starts with a number or bullet point, extract the actual query
+                                    if line.startswith(('1.', '2.', '3.', '4.', '5.', '•', '-', '*')):
+                                        # Extract the query part - look for text in quotes if present
+                                        if '"' in line:
+                                            # Extract text between quotes
+                                            start = line.find('"')
+                                            end = line.rfind('"')
+                                            if start != -1 and end != -1 and end > start:
+                                                extracted_query = line[start+1:end]
+                                                query_variations.append(extracted_query)
+                                        else:
+                                            # If no quotes, take everything after the first colon or after the bullet/number
+                                            parts = line.split(':', 1)
+                                            if len(parts) > 1:
+                                                query_variations.append(parts[1].strip())
+                                            else:
+                                                # Try to find the first alphabetic character after the bullet/number
+                                                for i, char in enumerate(line):
+                                                    if char.isalpha():
+                                                        query_variations.append(line[i:].strip())
+                                                        break
+                                    else:
+                                        # If it doesn't look like a header or instruction, include it as a query
+                                        query_variations.append(line)
+                                
+                                # Always include the original query
+                                if query_str not in query_variations:
                                     query_variations.append(query_str)
+                                
+                                # Limit to a reasonable number of variations
+                                query_variations = query_variations[:5]
                                 
                                 print(f"Generated {len(query_variations)} query variations")
                                 
-                                # Get documents for each query variation
+                                # Process each query variation
                                 all_docs = []
-                                doc_ids = set()  # Track unique document IDs
+                                for q in query_variations:
+                                    print(f"Starting hybrid search for query: {q}")
+                                    q_with_vector = {"query": q, "query_vector": self.embedding_model.embed_query(q)}
+                                    try:
+                                        var_docs = base_retriever_func(q_with_vector)
+                                        print(f"Retrieved {len(var_docs)} documents for variation: {q}")
+                                        # Debug first document for each query variation
+                                        if var_docs:
+                                            print(f"First doc content preview: {var_docs[0].page_content[:100]}...")
+                                            print(f"First doc metadata: {var_docs[0].metadata}")
+                                        all_docs.extend(var_docs)
+                                    except Exception as e:
+                                        print(f"Error in processing query variation '{q}': {str(e)}")
                                 
-                                for q_var in query_variations:
-                                    # Create query with vector if needed
-                                    if query_vector is not None:
-                                        q_with_vector = {"query": q_var, "query_vector": query_vector}
-                                    else:
-                                        # This will compute a new vector in the base_retriever_func
-                                        q_with_vector = {"query": q_var}
-                                    
-                                    # Get docs for this variation
-                                    var_docs = base_retriever_func(q_with_vector)
-                                    
-                                    # Add only unique documents
-                                    for doc in var_docs:
-                                        doc_id = doc.metadata.get('note_id', '') + str(doc.page_content[:50])
-                                        if doc_id not in doc_ids:
-                                            all_docs.append(doc)
-                                            doc_ids.add(doc_id)
+                                # Remove duplicates while preserving order
+                                seen = set()
+                                unique_docs = []
+                                for doc in all_docs:
+                                    doc_id = doc.page_content
+                                    if doc_id not in seen:
+                                        seen.add(doc_id)
+                                        unique_docs.append(doc)
                                 
-                                # Limit to the original k_documents
-                                return all_docs[:self.k_documents]
-                                
+                                print(f"Total unique documents after deduplication: {len(unique_docs)}")
+                                return unique_docs[:self.k_documents]
                             except Exception as e:
-                                print(f"Error in multi-query processing: {e}, falling back to base retriever")
-                                # Fall back to original retriever function
+                                print(f"Error in multi-query processing: {str(e)}, falling back to base retriever")
                                 return base_retriever_func(query)
                         
                         # Replace the retriever function with multi-query version
@@ -234,7 +265,7 @@ class RAGProcessor:
                 print("Configuring hybrid search retriever with FAISS...")
                 hybrid_search = self.vectorstore
                 
-                def get_relevant_docs(query: str) -> List[Document]:
+                def get_relevant_docs(query):
                     query_str = query["query"] if isinstance(query, dict) else query
                     results = hybrid_search.hybrid_search(
                         query=query_str,
@@ -344,11 +375,25 @@ class RAGProcessor:
                 """Process queries using the configured retrieval method."""
                 query_str = query["query"] if isinstance(query, dict) else query
                 
+                print("\n==== RETRIEVING DOCUMENTS ====")
                 # Get relevant documents
                 docs = retriever_func(query)
                 
+                # Debug the retrieved documents
+                print(f"\n==== RETRIEVED {len(docs)} DOCUMENTS ====")
+                for i, doc in enumerate(docs[:3]):  # Show first 3 docs for brevity
+                    print(f"\nDOCUMENT {i+1}:")
+                    print(f"Content (first 300 chars): {doc.page_content[:300]}...")
+                    print(f"Metadata: {doc.metadata}")
+                
                 # Create context using medical prompts
                 context = self.medical_prompts.combine_docs_with_metadata(docs)
+                print(f"\n==== CONTEXT LENGTH: {len(context)} chars ====")
+                print(f"Context preview: {context[:300]}...")
+                
+                # IMPORTANT: Log full context to debug what's being sent to the LLM
+                print(f"\n==== FULL CONTEXT ====")
+                print(context)
                 
                 # Format prompt and get response
                 qa_prompt = self.medical_prompts.get_qa_prompt()
@@ -356,6 +401,9 @@ class RAGProcessor:
                     context=context,
                     question=query_str
                 )
+                print(f"\n==== PROMPT LENGTH: {len(formatted_prompt)} chars ====")
+                print(f"Prompt preview: {formatted_prompt[:300]}...")
+                
                 llm_response = self.chat_model.predict(formatted_prompt)
                 
                 # Return structured response
@@ -459,7 +507,7 @@ class RAGProcessor:
         all_chunks = []
         
         # Process each JSON file
-        for json_path in Path(json_folder).glob("**/*.json"):
+        for json_path in Path(json_folder).glob("**/note*.json"):
             try:
                 print(f"\nProcessing medical note: {json_path.name}")
                 
@@ -533,11 +581,12 @@ class RAGProcessor:
                     score_threshold=0.6,  # Lower threshold for better retrieval
                     # Add hybrid search config if enabled
                     use_hybrid=enable_hybrid,
-                    dense_weight=0.4,
-                    sparse_weight=0.3,
-                    rerank_weight=0.3
-                )
-                
+                    dense_weight=0.6,
+                    sparse_weight=0.2,
+                    rerank_weight=0.2,
+                    embedding_model=self.embedding_model
+                    )
+                                    
                 # Create retriever with Milvus Lite
                 try:
                     self.vectorstore = create_retriever(
@@ -658,7 +707,9 @@ class RAGProcessor:
                                 'note_id': str(chunk['metadata']['note_id']),
                                 'hadm_id': str(chunk['metadata']['hadm_id']),
                                 'subject_id': str(chunk['metadata']['subject_id']),
-                                'section': chunk['section']
+                                'section': chunk['section'],
+                                'charttime': str(chunk['metadata']['charttime']),
+                                'storetime': str(chunk['metadata']['storetime'])
                             }
                             
                             # Debug: Print data structure
@@ -726,23 +777,38 @@ class RAGProcessor:
             print(f"Error saving processed documents: {e}")
             raise
 
-    def query(self, question: str) -> Dict:
-        """Process a question using the medical QA system."""
+    def query(self, query_text: str) -> Dict:
+        """Process a query using the configured QA chain."""
         if not self.qa_chain:
-            raise ValueError("Please process documents first")
+            raise ValueError("QA chain not initialized. Please process documents first.")
+        
+        print("\n==== PROCESSING QUERY ====")
+        print(f"Query: {query_text}")
+        print(f"Using collection: {self.collection_name}")
+        print(f"Search type: {'Hybrid' if hasattr(self.vectorstore, 'hybrid_search') else 'Standard Vector'}")
+        print(f"Number of documents to retrieve: {self.k_documents}")
+        
+        # Process the query through the configured QA chain
+        # This will use whatever retriever was set up in _setup_qa_chain
+        try:
+            response = self.qa_chain(query_text)
             
-        if self.use_milvus_lite:
-            # For Milvus Lite, we need to compute the query vector
-            query_vector = self.embedding_model.embed_query(question)
-            
-            # For basic retriever only
-            return self.qa_chain({
-                "query": question,
-                "query_vector": query_vector
-            })
-        else:
-            # Standard Milvus
-            return self.qa_chain(question)
+            # Log information about retrieved documents for debugging
+            if 'source_documents' in response and response['source_documents']:
+                print(f"\n==== RETRIEVED {len(response['source_documents'])} DOCUMENTS ====")
+                for i, doc in enumerate(response['source_documents'][:3], 1):  # Show first 3 docs
+                    print(f"\nDocument {i}:")
+                    print(f"Content preview: {doc.page_content[:100]}...")
+                    print(f"Metadata: {doc.metadata}")
+            else:
+                print("\nNo documents retrieved")
+                
+            return response
+        except Exception as e:
+            logger.error(f"Error processing query: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
 
     def process_questions(self, questions_csv: str, output_csv: str, chunk_size: int = 10):
         """Process multiple questions from a CSV and save results."""
@@ -762,7 +828,16 @@ class RAGProcessor:
             
             for idx, row in questions_df.iterrows():
                 try:
-                    response = self.qa_chain(row['user_input'])
+                    # Log for each question
+                    print(f"\nProcessing question {idx+1}/{len(questions_df)}: {row['user_input']}")
+                
+                    response = self.query(row['user_input'])
+                    
+                    # Debug the response
+                    print(f"Response structure: {list(response.keys())}")
+                    print(f"Result type: {type(response.get('result'))} Length: {len(str(response.get('result', '')))}")
+                    print(f"Number of source documents: {len(response.get('source_documents', []))}")
+                    
                     
                     questions_df.at[idx, 'answer'] = response.get('result', '')
                     questions_df.at[idx, 'source_content'] = str([
@@ -791,6 +866,49 @@ class RAGProcessor:
             
         except Exception as e:
             print(f"Error processing CSV: {e}")
+
+from pymilvus import MilvusClient
+from langchain.schema import Document
+
+class BaselineRAG:
+    def __init__(self, embedding_model, chat_model, milvus_db_path, collection_name, k=5):
+        self.embedding_model = embedding_model
+        self.chat_model = chat_model
+        self.k = k
+        self.collection_name = collection_name
+        self.client = MilvusClient(milvus_db_path)
+
+    def query(self, question: str):
+        query_vector = self.embedding_model.embed_query(question)
+        results = self.client.search(
+            collection_name=self.collection_name,
+            data=[query_vector],
+            limit=self.k,
+            output_fields=["content", "note_id", "hadm_id", "subject_id", "section", "charttime", "storetime"]
+        )
+        
+        docs = []
+        if results and len(results[0]) > 0:
+            for hit in results[0]:
+                content = hit.get("content") or hit.get("entity", {}).get("content", "")
+                metadata = {
+                    "note_id": hit.get("note_id", ""),
+                    "hadm_id": hit.get("hadm_id", ""),
+                    "subject_id": hit.get("subject_id", ""),
+                    "section": hit.get("section", ""),
+                    "charttime": hit.get("charttime", hit.get("entity", {}).get("charttime", "")),
+                    "storetime": hit.get("storetime", hit.get("entity", {}).get("storetime", ""))
+                }
+                docs.append(Document(page_content=content, metadata=metadata))
+        
+        context = "\n\n".join(doc.page_content for doc in docs)
+        prompt = f"""Use the following medical notes to answer the question.\n\nContext:\n{context}\n\nQuestion: {question}\nAnswer:"""
+        response = self.chat_model.predict(prompt)
+        
+        return {
+            "result": response,
+            "source_documents": docs
+        }
 
 def main():
     """Run the RAG processor interactively."""
@@ -823,9 +941,11 @@ def main():
             print("\nSelect Search Strategy:")
             print("1. Standard Vector Search")
             print("2. Hybrid Search")
-            search_choice = input("Enter search choice (1-2): ")
+            print("3. Baseline RAG (no compression / no multi-query / no hybrid)")
+            search_choice = input("Enter search choice (1-3): ")
             enable_hybrid = search_choice == '2'
-            
+            use_baseline = search_choice == '3'
+
             # Log the chosen configuration
             print(f"\nConfiguration:")
             print(f"- Chunking: {chunk_type}")
@@ -849,7 +969,9 @@ def main():
                     num_chunks = processor.process_json_documents(
                         JSON_FOLDER,
                         chunk_type=chunk_type,
-                        enable_hybrid=enable_hybrid
+                        enable_hybrid=enable_hybrid,
+                        use_compression=not use_baseline,
+                        use_multi_query=not use_baseline
                     )
                     print(f"\nSuccessfully processed {num_chunks} chunks from JSON documents")
                 except Exception as e:
@@ -863,7 +985,18 @@ def main():
             try:
                 question = input("\nEnter your medical question: ")
                 print("\nProcessing question...")
-                response = processor.query(question)
+                if use_baseline:
+                    baseline = BaselineRAG(
+                    embedding_model=processor.embedding_model,
+                    chat_model=processor.chat_model,
+                    milvus_db_path=processor.milvus_lite_db,
+                    collection_name=processor.collection_name,
+                    k=5
+                    )
+                    response = baseline.query(question)
+                else:
+                    response = processor.query(question)
+                
                 print("\nAnswer:", response['result'])
                 # print("\nSource Documents:")
                 # for i, doc in enumerate(response['source_documents'], 1):
@@ -897,3 +1030,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
