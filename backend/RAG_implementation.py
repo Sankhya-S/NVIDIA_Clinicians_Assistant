@@ -18,7 +18,7 @@ sys.path.append(str(project_root))
 
 
 # Import custom modules
-from model_setup import setup_embedding, setup_chat_model, get_pdf_paths
+from model_setup import setup_embedding, setup_chat_model
 from backend.prompt.prompt import MedicalPrompts
 from backend.processors.document_processor import (
     process_note_sections,
@@ -34,10 +34,15 @@ from backend.processors.notes_processor import extract_text_from_pdf
 from backend.retrievers.base_retriever import (
     RetrieverConfig,
     create_retriever,
+    insert_documents_into_milvus_lite,
     BaseMedicalRetriever
 )
 from backend.retrievers.hybrid_search import EnhancedHybridSearch, SearchConfig
 from backend.retrievers.hybrid_search_faiss import EnhancedHybridSearchFAISS  
+
+from langchain.retrievers import ContextualCompressionRetriever, MultiQueryRetriever
+from langchain.retrievers.document_compressors import DocumentCompressorPipeline
+from langchain.document_transformers import EmbeddingsRedundantFilter, LongContextReorder
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +57,22 @@ class RAGProcessor:
         self.qa_chain = None
         self.k_documents = 5
 
+        
         self.use_milvus_lite = True
-        self.milvus_lite_db = "./milvus_medical.db"
+        self.milvus_lite_db = "./milvus_medical_M.db"
 
+        # New enhanced retrieval settings
+        self.use_contextual_compression = True
+        self.use_multi_query = True
+        self.compression_similarity_threshold = 0.75
 
+    
     def process_document_text(self, text: str, metadata: Dict, chunk_type: str = "detailed") -> List[Dict]:
         """Process document text using either basic or detailed chunking."""
         if chunk_type == "basic":
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1500,
-                chunk_overlap=300,
+                chunk_size=800,
+                chunk_overlap=150,
                 length_function=len,
                 separators=["\n\n", "\n", " ", ""]
             )
@@ -82,59 +93,307 @@ class RAGProcessor:
             raise ValueError("Vectorstore must be initialized before setting up QA chain")
         
         try:
+            # Define retriever_func at the outer scope so it's available to enhanced_qa
+            retriever_func = None
+            
             # Determine search type and set up appropriate retriever
             if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite and isinstance(self.vectorstore, BaseMedicalRetriever):
                 print("Configuring Milvus Lite retriever...")
                 
-                def get_relevant_docs(query: str) -> List[Document]:
-                    # If query is a dict, it may contain a query_vector
-                    query_str = query["query"] if isinstance(query, dict) else query
-                    query_vector = query.get("query_vector") if isinstance(query, dict) else None
+                # Apply document transformers if enabled
+                if self.use_contextual_compression and hasattr(self.vectorstore, '_base_retriever'):
+                    print("Adding contextual compression to retriever...")
+                    redundant_filter = EmbeddingsRedundantFilter(
+                        embeddings=self.embedding_model,
+                        similarity_threshold=self.compression_similarity_threshold
+                    )
+                    reordering = LongContextReorder()
                     
-                    if query_vector is None:
-                        # If no query vector provided, compute it
-                        query_vector = self.embedding_model.embed_query(query_str)
-                    
-                    # Get relevant documents using Milvus Lite retriever
-                    return self.vectorstore.get_relevant_documents(
-                        query_str,
-                        query_vector=query_vector,
-                        k=self.k_documents
+                    compressor_pipeline = DocumentCompressorPipeline(
+                        transformers=[redundant_filter, reordering]
                     )
                     
-                retriever_func = get_relevant_docs
-                print("Milvus Lite retriever configured successfully")
+                    enhanced_retriever = ContextualCompressionRetriever(
+                        base_compressor=compressor_pipeline,
+                        base_retriever=self.vectorstore._base_retriever
+                    )
+                    
+                    def get_relevant_docs(query):
+                        query_str = query["query"] if isinstance(query, dict) else query
+                        query_vector = query.get("query_vector") if isinstance(query, dict) else None
+                        
+                        if query_vector is None:
+                            query_vector = self.embedding_model.embed_query(query_str)
+                        
+                        # Use enhanced retriever if no query vector is needed, otherwise use base
+                        if hasattr(enhanced_retriever, 'get_relevant_documents'):
+                            return enhanced_retriever.get_relevant_documents(query_str)
+                        else:
+                            return self.vectorstore.get_relevant_documents(
+                                query_str,
+                                query_vector=query_vector,
+                                k=self.k_documents
+                            )
+                    
+                    retriever_func = get_relevant_docs
+                    print("Enhanced Milvus Lite retriever configured with compression")
+                else:
+                    # Original Milvus Lite retriever code
+                    def get_relevant_docs(query):
+                        query_str = query["query"] if isinstance(query, dict) else query
+                        query_vector = query.get("query_vector") if isinstance(query, dict) else None
+                        
+                        if query_vector is None:
+                            query_vector = self.embedding_model.embed_query(query_str)
+                        
+                        return self.vectorstore.get_relevant_documents(
+                            query_str,
+                            query_vector=query_vector,
+                            k=self.k_documents
+                        )
+                    
+                    retriever_func = get_relevant_docs
+                    print("Standard Milvus Lite retriever configured")
+                    
+                # Apply multi-query enhancement if enabled
+                if self.use_multi_query and retriever_func and hasattr(self.chat_model, 'predict'):
+                    try:
+                        print("Adding multi-query capability to Milvus Lite retriever...")
+                        
+                        # Store the base retriever function
+                        base_retriever_func = retriever_func
+                        
+                        # Create a wrapper function that implements multi-query
+                        def multi_query_retriever_func(query):
+                            query_str = query["query"] if isinstance(query, dict) else query
+                            query_vector = query.get("query_vector") if isinstance(query, dict) else None
+                            
+                            # Generate multiple query variations using the LLM
+                            prompt = self.medical_prompts.get_multi_query_prompt(query_str)
+                            
+                            try:
+                                variations_response = self.chat_model.predict(prompt)
+                                
+                                # Parse the response to extract only the actual query variations
+                                query_variations = []
+                                
+                                # Split the response by lines
+                                lines = variations_response.strip().split('\n')
+                                
+                                # Filter out lines that are not actual queries
+                                for line in lines:
+                                    line = line.strip()
+                                    # Skip empty lines or lines that look like instructions/headers
+                                    if not line or "Here are" in line or "alternative" in line:
+                                        continue
+                                        
+                                    # If line starts with a number or bullet point, extract the actual query
+                                    if line.startswith(('1.', '2.', '3.', '4.', '5.', '•', '-', '*')):
+                                        # Extract the query part - look for text in quotes if present
+                                        if '"' in line:
+                                            # Extract text between quotes
+                                            start = line.find('"')
+                                            end = line.rfind('"')
+                                            if start != -1 and end != -1 and end > start:
+                                                extracted_query = line[start+1:end]
+                                                query_variations.append(extracted_query)
+                                        else:
+                                            # If no quotes, take everything after the first colon or after the bullet/number
+                                            parts = line.split(':', 1)
+                                            if len(parts) > 1:
+                                                query_variations.append(parts[1].strip())
+                                            else:
+                                                # Try to find the first alphabetic character after the bullet/number
+                                                for i, char in enumerate(line):
+                                                    if char.isalpha():
+                                                        query_variations.append(line[i:].strip())
+                                                        break
+                                    else:
+                                        # If it doesn't look like a header or instruction, include it as a query
+                                        query_variations.append(line)
+                                
+                                # Always include the original query
+                                if query_str not in query_variations:
+                                    query_variations.append(query_str)
+                                
+                                # Limit to a reasonable number of variations
+                                query_variations = query_variations[:5]
+                                
+                                print(f"Generated {len(query_variations)} query variations")
+                                
+                                # Process each query variation
+                                all_docs = []
+                                for q in query_variations:
+                                    print(f"Starting hybrid search for query: {q}")
+                                    q_with_vector = {"query": q, "query_vector": self.embedding_model.embed_query(q)}
+                                    try:
+                                        var_docs = base_retriever_func(q_with_vector)
+                                        print(f"Retrieved {len(var_docs)} documents for variation: {q}")
+                                        # Debug first document for each query variation
+                                        if var_docs:
+                                            print(f"First doc content preview: {var_docs[0].page_content[:100]}...")
+                                            print(f"First doc metadata: {var_docs[0].metadata}")
+                                        all_docs.extend(var_docs)
+                                    except Exception as e:
+                                        print(f"Error in processing query variation '{q}': {str(e)}")
+                                
+                                # Remove duplicates while preserving order
+                                seen = set()
+                                unique_docs = []
+                                for doc in all_docs:
+                                    doc_id = doc.page_content
+                                    if doc_id not in seen:
+                                        seen.add(doc_id)
+                                        unique_docs.append(doc)
+                                
+                                print(f"Total unique documents after deduplication: {len(unique_docs)}")
+                                return unique_docs[:self.k_documents]
+                            except Exception as e:
+                                print(f"Error in multi-query processing: {str(e)}, falling back to base retriever")
+                                return base_retriever_func(query)
+                        
+                        # Replace the retriever function with multi-query version
+                        retriever_func = multi_query_retriever_func
+                        print("Multi-query capability added to Milvus Lite retriever")
+                        
+                    except Exception as e:
+                        print(f"Failed to set up multi-query for Milvus Lite: {e}")
+                        # Keep the original retriever_func
                 
+            # Handle FAISS hybrid search case
             elif isinstance(self.vectorstore, EnhancedHybridSearchFAISS):
                 print("Configuring hybrid search retriever with FAISS...")
                 hybrid_search = self.vectorstore
                 
-                def get_relevant_docs(query: str) -> List[Document]:
+                def get_relevant_docs(query):
+                    query_str = query["query"] if isinstance(query, dict) else query
                     results = hybrid_search.hybrid_search(
-                        query=query,
+                        query=query_str,
                         k=self.k_documents
                     )
                     return [result.document for result in results]
                     
                 retriever_func = get_relevant_docs
                 print("Hybrid search retriever configured successfully")
+                
+                # Apply document transformers if enabled
+                if self.use_contextual_compression:
+                    try:
+                        print("Adding contextual compression to hybrid search retriever...")
+                        redundant_filter = EmbeddingsRedundantFilter(
+                            embeddings=self.embedding_model,
+                            similarity_threshold=self.compression_similarity_threshold
+                        )
+                        reordering = LongContextReorder()
+                        
+                        # Create a document compressor pipeline
+                        compressor = DocumentCompressorPipeline(
+                            transformers=[redundant_filter, reordering]
+                        )
+                        
+                        # Store the base retriever function
+                        base_retriever_func = retriever_func
+                        
+                        # Create a function that applies compression
+                        def compressed_retriever_func(query):
+                            docs = base_retriever_func(query)
+                            return compressor.compress_documents(docs, query)
+                        
+                        # Replace the retriever function
+                        retriever_func = compressed_retriever_func
+                        print("Compression added to hybrid search retriever")
+                    except Exception as e:
+                        print(f"Error setting up compression for hybrid search: {e}")
+                        # Keep the original retriever_func
+            
+            # Handle standard vectorstore case
             else:
                 print("Configuring standard vector search retriever...")
-                retriever = self.vectorstore.as_retriever(
+                
+                # Create the base retriever
+                base_retriever = self.vectorstore.as_retriever(
                     search_kwargs={"k": self.k_documents}
                 )
-                retriever_func = retriever.get_relevant_documents
-                print("Standard vector search retriever configured successfully")
-
+                retriever_func = base_retriever.get_relevant_documents
+                
+                # Apply multi-query if enabled
+                if self.use_multi_query and hasattr(self.chat_model, 'predict'):
+                    try:
+                        print("Adding multi-query capability to standard retriever...")
+                        multi_query_retriever = MultiQueryRetriever.from_llm(
+                            retriever=base_retriever,
+                            llm=self.chat_model
+                        )
+                        
+                        # Update the retriever function
+                        def multi_query_func(query):
+                            query_str = query["query"] if isinstance(query, dict) else query
+                            return multi_query_retriever.get_relevant_documents(query_str)
+                        
+                        retriever_func = multi_query_func
+                        print("Multi-query retriever configured successfully")
+                    except Exception as e:
+                        print(f"Error setting up multi-query retriever: {e}, using standard retriever")
+                        # Keep the original retriever_func
+                
+                # Apply contextual compression if enabled
+                if self.use_contextual_compression:
+                    try:
+                        print("Adding contextual compression to standard retriever...")
+                        redundant_filter = EmbeddingsRedundantFilter(
+                            embeddings=self.embedding_model,
+                            similarity_threshold=self.compression_similarity_threshold
+                        )
+                        reordering = LongContextReorder()
+                        
+                        compressor_pipeline = DocumentCompressorPipeline(
+                            transformers=[redundant_filter, reordering]
+                        )
+                        
+                        # Store the current retriever function
+                        base_retriever_func = retriever_func
+                        
+                        # Create a function that applies compression
+                        def compressed_retriever_func(query):
+                            query_str = query["query"] if isinstance(query, dict) else query
+                            docs = base_retriever_func(query)
+                            return compressor_pipeline.compress_documents(docs, query_str)
+                        
+                        # Replace the retriever function
+                        retriever_func = compressed_retriever_func
+                        print("Compression added to standard retriever")
+                    except Exception as e:
+                        print(f"Error setting up compression for standard retriever: {e}")
+                        # Keep the original retriever_func
+            
+            # Verify that we have a retriever function
+            if retriever_func is None:
+                raise ValueError("Failed to configure a retriever function")
+            
+            # Now define enhanced_qa using the configured retriever_func
             def enhanced_qa(query):
                 """Process queries using the configured retrieval method."""
                 query_str = query["query"] if isinstance(query, dict) else query
                 
+                print("\n==== RETRIEVING DOCUMENTS ====")
                 # Get relevant documents
                 docs = retriever_func(query)
                 
+                # Debug the retrieved documents
+                print(f"\n==== RETRIEVED {len(docs)} DOCUMENTS ====")
+                for i, doc in enumerate(docs[:3]):  # Show first 3 docs for brevity
+                    print(f"\nDOCUMENT {i+1}:")
+                    print(f"Content (first 300 chars): {doc.page_content[:300]}...")
+                    print(f"Metadata: {doc.metadata}")
+                
                 # Create context using medical prompts
                 context = self.medical_prompts.combine_docs_with_metadata(docs)
+                print(f"\n==== CONTEXT LENGTH: {len(context)} chars ====")
+                print(f"Context preview: {context[:300]}...")
+                
+                # IMPORTANT: Log full context to debug what's being sent to the LLM
+                print(f"\n==== FULL CONTEXT ====")
+                print(context)
                 
                 # Format prompt and get response
                 qa_prompt = self.medical_prompts.get_qa_prompt()
@@ -142,6 +401,9 @@ class RAGProcessor:
                     context=context,
                     question=query_str
                 )
+                print(f"\n==== PROMPT LENGTH: {len(formatted_prompt)} chars ====")
+                print(f"Prompt preview: {formatted_prompt[:300]}...")
+                
                 llm_response = self.chat_model.predict(formatted_prompt)
                 
                 # Return structured response
@@ -156,8 +418,9 @@ class RAGProcessor:
                         "storetime": doc.metadata.get("storetime", "N/A")
                     } for doc in docs]
                 }
-    
+            
             self.qa_chain = enhanced_qa
+            print("QA chain setup complete")
             
         except Exception as e:
             logger.error(f"Error setting up QA chain: {e}")
@@ -229,8 +492,12 @@ class RAGProcessor:
             print(f"Error setting up vectorstore: {e}")
             raise
 
-    def process_json_documents(self, json_folder: str, chunk_type: str = "detailed", enable_hybrid: bool = False) -> int:
+    def process_json_documents(self, json_folder: str, chunk_type: str = "detailed", enable_hybrid: bool = False, use_compression: bool = True, use_multi_query: bool = True) -> int:
         """Process JSON documents with specified chunking and search strategy."""
+        
+        self.use_contextual_compression = use_compression
+        self.use_multi_query = use_multi_query
+        
         print(f"\nProcessing JSONs from {json_folder}")
         print(f"Using {chunk_type} chunking with {'hybrid' if enable_hybrid else 'standard'} search")
         if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite:
@@ -240,7 +507,7 @@ class RAGProcessor:
         all_chunks = []
         
         # Process each JSON file
-        for json_path in Path(json_folder).glob("**/*.json"):
+        for json_path in Path(json_folder).glob("**/note*.json"):
             try:
                 print(f"\nProcessing medical note: {json_path.name}")
                 
@@ -250,11 +517,11 @@ class RAGProcessor:
                     continue
                 
                 metadata = {
-                    "note_id": note.get("note_id"),
-                    "subject_id": note.get("subject_id"),
-                    "hadm_id": note.get("hadm_id"),
-                    "charttime": note.get("charttime"),
-                    "storetime": note.get("storetime"),
+                    "note_id": note.get("note_id", ""),
+                    "subject_id": note.get("subject_id", ""),
+                    "hadm_id": note.get("hadm_id", ""),
+                    "charttime": note.get("charttime", ""),
+                    "storetime": note.get("storetime", ""),
                     "source_type": "json"
                 }
                 
@@ -283,6 +550,8 @@ class RAGProcessor:
                     
             except Exception as e:
                 print(f"Error processing medical note {json_path}: {e}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
                 continue
     
         if not all_chunks:
@@ -298,21 +567,40 @@ class RAGProcessor:
             if hasattr(self, 'use_milvus_lite') and self.use_milvus_lite:
                 print(f"\nSetting up {'hybrid' if enable_hybrid else 'standard'} search with Milvus Lite...")
                 
-                # Configure retriever for Milvus Lite - REMOVE problematic parameters
+                # Configure retriever for Milvus Lite
                 retriever_config = RetrieverConfig(
                     collection_name=self.collection_name,
                     use_milvus_lite=True,
-                    milvus_lite_db=self.milvus_lite_db
-                )
-                
+                    milvus_lite_db=self.milvus_lite_db,
+                    # Add the new configuration options
+                    use_contextual_compression=self.use_contextual_compression,
+                    use_multi_query=self.use_multi_query,
+                    compression_similarity_threshold=self.compression_similarity_threshold,
+                    llm=self.chat_model,
+                    k_documents=self.k_documents,
+                    score_threshold=0.6,  # Lower threshold for better retrieval
+                    # Add hybrid search config if enabled
+                    use_hybrid=enable_hybrid,
+                    dense_weight=0.6,
+                    sparse_weight=0.2,
+                    rerank_weight=0.2,
+                    embedding_model=self.embedding_model
+                    )
+                                    
                 # Create retriever with Milvus Lite
-                self.vectorstore = create_retriever(
-                    all_chunks,
-                    self.embedding_model,
-                    retriever_config
-                )
-                
-                print(f"Successfully set up Milvus Lite retriever with collection: {self.collection_name}")
+                try:
+                    self.vectorstore = create_retriever(
+                        all_chunks,  # Pass all chunks for insertion
+                        self.embedding_model,
+                        retriever_config
+                    )
+                    
+                    print(f"Successfully set up {'hybrid' if enable_hybrid else 'standard'} Milvus Lite retriever with collection: {self.collection_name}")
+                except Exception as e:
+                    print(f"Error creating retriever: {e}")
+                    import traceback
+                    print(f"Traceback: {traceback.format_exc()}")
+                    raise
             
             elif enable_hybrid:
                 print("\nDEBUG: Setting up hybrid search for JSONs...")
@@ -419,7 +707,9 @@ class RAGProcessor:
                                 'note_id': str(chunk['metadata']['note_id']),
                                 'hadm_id': str(chunk['metadata']['hadm_id']),
                                 'subject_id': str(chunk['metadata']['subject_id']),
-                                'section': chunk['section']
+                                'section': chunk['section'],
+                                'charttime': str(chunk['metadata']['charttime']),
+                                'storetime': str(chunk['metadata']['storetime'])
                             }
                             
                             # Debug: Print data structure
@@ -487,23 +777,38 @@ class RAGProcessor:
             print(f"Error saving processed documents: {e}")
             raise
 
-    def query(self, question: str) -> Dict:
-        """Process a question using the medical QA system."""
+    def query(self, query_text: str) -> Dict:
+        """Process a query using the configured QA chain."""
         if not self.qa_chain:
-            raise ValueError("Please process documents first")
+            raise ValueError("QA chain not initialized. Please process documents first.")
+        
+        print("\n==== PROCESSING QUERY ====")
+        print(f"Query: {query_text}")
+        print(f"Using collection: {self.collection_name}")
+        print(f"Search type: {'Hybrid' if hasattr(self.vectorstore, 'hybrid_search') else 'Standard Vector'}")
+        print(f"Number of documents to retrieve: {self.k_documents}")
+        
+        # Process the query through the configured QA chain
+        # This will use whatever retriever was set up in _setup_qa_chain
+        try:
+            response = self.qa_chain(query_text)
             
-        if self.use_milvus_lite:
-            # For Milvus Lite, we need to compute the query vector
-            query_vector = self.embedding_model.embed_query(question)
-            
-            # For basic retriever only
-            return self.qa_chain({
-                "query": question,
-                "query_vector": query_vector
-            })
-        else:
-            # Standard Milvus
-            return self.qa_chain(question)
+            # Log information about retrieved documents for debugging
+            if 'source_documents' in response and response['source_documents']:
+                print(f"\n==== RETRIEVED {len(response['source_documents'])} DOCUMENTS ====")
+                for i, doc in enumerate(response['source_documents'][:3], 1):  # Show first 3 docs
+                    print(f"\nDocument {i}:")
+                    print(f"Content preview: {doc.page_content[:100]}...")
+                    print(f"Metadata: {doc.metadata}")
+            else:
+                print("\nNo documents retrieved")
+                
+            return response
+        except Exception as e:
+            logger.error(f"Error processing query: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
 
     def process_questions(self, questions_csv: str, output_csv: str, chunk_size: int = 10):
         """Process multiple questions from a CSV and save results."""
@@ -523,7 +828,16 @@ class RAGProcessor:
             
             for idx, row in questions_df.iterrows():
                 try:
-                    response = self.qa_chain(row['user_input'])
+                    # Log for each question
+                    print(f"\nProcessing question {idx+1}/{len(questions_df)}: {row['user_input']}")
+                
+                    response = self.query(row['user_input'])
+                    
+                    # Debug the response
+                    print(f"Response structure: {list(response.keys())}")
+                    print(f"Result type: {type(response.get('result'))} Length: {len(str(response.get('result', '')))}")
+                    print(f"Number of source documents: {len(response.get('source_documents', []))}")
+                    
                     
                     questions_df.at[idx, 'answer'] = response.get('result', '')
                     questions_df.at[idx, 'source_content'] = str([
@@ -552,6 +866,49 @@ class RAGProcessor:
             
         except Exception as e:
             print(f"Error processing CSV: {e}")
+
+from pymilvus import MilvusClient
+from langchain.schema import Document
+
+class BaselineRAG:
+    def __init__(self, embedding_model, chat_model, milvus_db_path, collection_name, k=5):
+        self.embedding_model = embedding_model
+        self.chat_model = chat_model
+        self.k = k
+        self.collection_name = collection_name
+        self.client = MilvusClient(milvus_db_path)
+
+    def query(self, question: str):
+        query_vector = self.embedding_model.embed_query(question)
+        results = self.client.search(
+            collection_name=self.collection_name,
+            data=[query_vector],
+            limit=self.k,
+            output_fields=["content", "note_id", "hadm_id", "subject_id", "section", "charttime", "storetime"]
+        )
+        
+        docs = []
+        if results and len(results[0]) > 0:
+            for hit in results[0]:
+                content = hit.get("content") or hit.get("entity", {}).get("content", "")
+                metadata = {
+                    "note_id": hit.get("note_id", ""),
+                    "hadm_id": hit.get("hadm_id", ""),
+                    "subject_id": hit.get("subject_id", ""),
+                    "section": hit.get("section", ""),
+                    "charttime": hit.get("charttime", hit.get("entity", {}).get("charttime", "")),
+                    "storetime": hit.get("storetime", hit.get("entity", {}).get("storetime", ""))
+                }
+                docs.append(Document(page_content=content, metadata=metadata))
+        
+        context = "\n\n".join(doc.page_content for doc in docs)
+        prompt = f"""Use the following medical notes to answer the question.\n\nContext:\n{context}\n\nQuestion: {question}\nAnswer:"""
+        response = self.chat_model.predict(prompt)
+        
+        return {
+            "result": response,
+            "source_documents": docs
+        }
 
 def main():
     """Run the RAG processor interactively."""
@@ -584,9 +941,11 @@ def main():
             print("\nSelect Search Strategy:")
             print("1. Standard Vector Search")
             print("2. Hybrid Search")
-            search_choice = input("Enter search choice (1-2): ")
+            print("3. Baseline RAG (no compression / no multi-query / no hybrid)")
+            search_choice = input("Enter search choice (1-3): ")
             enable_hybrid = search_choice == '2'
-            
+            use_baseline = search_choice == '3'
+
             # Log the chosen configuration
             print(f"\nConfiguration:")
             print(f"- Chunking: {chunk_type}")
@@ -610,7 +969,9 @@ def main():
                     num_chunks = processor.process_json_documents(
                         JSON_FOLDER,
                         chunk_type=chunk_type,
-                        enable_hybrid=enable_hybrid
+                        enable_hybrid=enable_hybrid,
+                        use_compression=not use_baseline,
+                        use_multi_query=not use_baseline
                     )
                     print(f"\nSuccessfully processed {num_chunks} chunks from JSON documents")
                 except Exception as e:
@@ -624,13 +985,24 @@ def main():
             try:
                 question = input("\nEnter your medical question: ")
                 print("\nProcessing question...")
-                response = processor.query(question)
+                if use_baseline:
+                    baseline = BaselineRAG(
+                    embedding_model=processor.embedding_model,
+                    chat_model=processor.chat_model,
+                    milvus_db_path=processor.milvus_lite_db,
+                    collection_name=processor.collection_name,
+                    k=5
+                    )
+                    response = baseline.query(question)
+                else:
+                    response = processor.query(question)
+                
                 print("\nAnswer:", response['result'])
-                print("\nSource Documents:")
-                for i, doc in enumerate(response['source_documents'], 1):
-                    print(f"\nSource {i}:")
-                    print(f"Content: {doc.page_content[:200]}...")
-                    print(f"Metadata: {doc.metadata}")
+                # print("\nSource Documents:")
+                # for i, doc in enumerate(response['source_documents'], 1):
+                #     print(f"\nSource {i}:")
+                #     print(f"Content: {doc.page_content[:200]}...")
+                #     print(f"Metadata: {doc.metadata}")
             except Exception as e:
                 print(f"Error processing question: {e}")
             
@@ -649,7 +1021,7 @@ def main():
                 processor.process_questions(csv_path, output_path, chunk_size)
             except Exception as e:
                 print(f"Error processing questions from CSV: {e}")
-            
+
         elif choice == '5':
             print("\nExiting Medical Document Processing System")
             break
@@ -658,3 +1030,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

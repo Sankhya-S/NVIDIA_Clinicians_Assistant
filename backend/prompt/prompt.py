@@ -4,60 +4,41 @@ from langchain.schema import Document
 
 class MedicalPrompts:
     """Manages prompt templates and document formatting for medical document analysis."""
-
-    @staticmethod
-    def get_metadata_prompt() -> PromptTemplate:
-        """Gets the main metadata-aware prompt template for medical document analysis."""
-        return PromptTemplate(
-            input_variables=["context", "metadata", "question"],
-            template="""You are analyzing medical documents and their metadata to provide accurate answers.
-
-Context from documents:
-{context}
-
-Document Metadata:
-{metadata}
-
-Based on both the content and metadata (like timestamps, source types, and IDs), please answer the following question:
-{question}
-
-Please provide a comprehensive answer that:
-1. Addresses the main question
-2. Incorporates relevant metadata insights (especially temporal relationships)
-3. Notes if the information comes from multiple source types or time periods
-4. Highlights any patterns or inconsistencies across documents
-"""
-        )
-
+    
     @staticmethod
     def get_qa_prompt() -> PromptTemplate:
-        """Gets the medical QA prompt template focusing on metadata and document analysis."""
+        """Gets the definitive medical RAG prompt for comprehensive clinical document analysis."""
         return PromptTemplate(
             input_variables=["context", "question"],
-            template="""You are a medical document assistant analyzing these documents. Each document includes content and metadata.
+            template="""You are a world-class medical document analyst with deep expertise in clinical documentation interpretation.
 
 {context}
 
-Current Question: {question}
+Question: {question}
 
-Instructions for answering:
-1. For questions about IDs or dates, primarily use the METADATA values
-2. Report exact ID values as shown in metadata
-3. If the same ID appears in multiple documents, mention this
-4. Always prioritize metadata over document content for ID values
+**HOW TO ANSWER**
+
+RESPONSE GUIDELINES:
+1. START with one direct, authoritative sentence that precisely answers the question.
+2. PRESENT information in cohesive paragraphs without bullet points or unnecessary formatting.
+3. ENSURE FAITHFULNESS to source documents - never add information not present in the context.
+4. PRIORITIZE RELEVANCE - focus only on information directly related to the question.
+5. SYNTHESIZE across documents chronologically, noting clinical progression when relevant.
+6. ACKNOWLEDGE information gaps explicitly rather than making assumptions.
+7. CITE evidence by referring to specific document segments when supporting key claims.
+8. DISTINGUISH between documented facts (highest confidence) and reasonable clinical inferences.
+9. CONSIDER RECENCY - newer clinical information typically supersedes older information.
+10. USE appropriate medical terminology while maintaining clarity.
+11. PRESENT information in cohesive paragraphs without bullet points or unnecessary formatting.
+
+
+Your goal is to provide clinically sound, accurate, and useful information that directly addresses the question while remaining absolutely faithful to the source documents.
 """
         )
-
+    
     @staticmethod
     def combine_docs_with_metadata(docs: List[Document]) -> str:
-        """Combines multiple documents with their metadata into a single formatted context.
-
-        Args:
-            docs: List of Document objects containing content and metadata
-
-        Returns:
-            A formatted string containing all documents with their metadata
-        """
+        """Combines multiple documents with their metadata into a single formatted context."""
         combined_docs = []
         for i, doc in enumerate(docs, 1):
             doc_text = f"""
@@ -76,3 +57,22 @@ Instructions for answering:
             """
             combined_docs.append(doc_text)
         return "\n".join(combined_docs)
+    
+    @staticmethod
+    def get_multi_query_prompt(query: str) -> str:
+        """Gets a prompt for generating multiple query variations to improve retrieval."""
+        return f"""
+        Generate four diverse medical query reformulations of the following question to maximize relevant document retrieval.
+        
+        For the original query: "{query}"
+        
+        Create variations that:
+        1. Use alternative medical terminology and phrasing
+        2. Expand implicit concepts into explicit medical terms
+        3. Consider related symptoms, conditions, and clinical relationships
+        4. Address temporal aspects or progression where applicable
+        5. Preserve any spelling variations or informal language from the original
+        
+        Return exactly four alternative queries, one per line, numbered 1-4.
+        Do not include explanations, just the reformulated queries.
+        """

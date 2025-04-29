@@ -13,7 +13,7 @@ from pathlib import Path
 project_root = Path(__file__).parents[2]
 sys.path.append(str(project_root))
 
-from model_setup import setup_embedding, setup_chat_model, setup_milvus
+from model_setup import setup_embedding, setup_chat_model
 
 from backend.processors.document_processor import process_note_sections, debug_print
 from backend.retrievers.hybrid_search import *
