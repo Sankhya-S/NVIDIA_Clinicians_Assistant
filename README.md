@@ -1,4 +1,4 @@
-![NVIDID_Clinicians_Assistant](Image_Folder/Header_3.png)
+![NVIDIA_Clinicians_Assistant](Image_Folder/Header_3.png)
 
 # NVIDIA Clinicians Assistant
 By Margo Kim, Sankhya Sivakumar & Sarah Auch
@@ -51,7 +51,7 @@ We have developed and named four architectures to measure performance and improv
 
 
 **Basic RAG**
-![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
+![NVIDIA_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
 #### Key Features:
 
 - Metadata-aware Retrieval: Document chunks are stored with metadata (e.g., patient ID, chart date/time) to prioritize temporally relevant content.
@@ -63,8 +63,8 @@ We have developed and named four architectures to measure performance and improv
 This pipeline enhances the basic RAG structure by increasing robustness, temporal relevance, and citation faithfulness—critical in clinical settings where transparency and accuracy matter most
 
 **Advanced Document Processing RAG**
-![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADParch.png)
-![NVIDID_Clinicians_Assistant](Image_Folder/ADP.png)
+![NVIDIA_Clinicians_Assistant](Image_Folder/RAG-ADParch.png)
+![NVIDIA_Clinicians_Assistant](Image_Folder/ADP.png)
 
 #### Key Features:
 
@@ -76,7 +76,7 @@ This pipeline enhances the basic RAG structure by increasing robustness, tempora
 By preserving the document's logical structure and aligning retrieval with clinical semantics, this design significantly improves contextual relevance and precision for specialized queries
 
 **Hybrid Search RAG**
-![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Hybrid.png)
+![NVIDIA_Clinicians_Assistant](Image_Folder/RAG-Hybrid.png)
 
 #### Key Features:
 - Hybrid Retrieval: Combines dense (semantic) search with sparse (keyword-based) search to capture both semantic relevance and exact term matches.
@@ -87,7 +87,7 @@ Context Compression: After retrieval, redundant content is filtered and reordere
 This architecture improves recall, especially for vague or underspecified queries. However, increased breadth must be carefully compressed to avoid diluting answer quality
 
 **Advanced Document Processing & Hybid Search RAG**
-![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADP-Hybrid.png)
+![NVIDIA_Clinicians_Assistant](Image_Folder/RAG-ADP-Hybrid.png)
 
 #### Key Features:
 - Combines document processing from the Advanced Document Processing RAG Architecture with Hybrid Search from the Hybrid Search RAG Architecture.
@@ -190,9 +190,11 @@ The following metrics are used to assess the chatbot's performance:
 - **Answer Relevance**: Evaluates how well the answer aligns with the intent and content of the original clinical question. It penalizes incomplete or irrelevant responses, focusing on the user's query rather than strict factual correctness.
 - **Context Precision**: Assesses the proportion of retrieved content that was actually useful for answering the question. High scores indicate that the retriever efficiently pulled in focused, relevant context rather than excessive or unrelated information.
 
+![NVIDIA_Clinicians_Assistant](Image_Folder/RAGAS.png)
+
 
 ### Evaluation Results
-![RAGAS_Evaluation](Image_Folder/RAG_evals.png)
+![NVIDIA_Clinicians_Assistant](Image_Folder/RAG_eval.png)
 - RAG Baseline delivered the highest context precision (0.88) and answer relevance (0.69), suggesting that its simpler retrieval strategy, enhanced by multi-query expansion and context reordering, may help reduce noise and confusion for the LLM.
 - Advanced Document Processing achieved the highest faithfulness (0.61) due to its structured chunking and metadata-aware retrieval, which provided semantically grounded inputs aligned with clinical intent.
 - Hybrid Search maintained high relevance (0.68) and strong context precision (0.80) by combining dense and sparse retrieval methods, though faithfulness was slightly lower, likely due to surfacing loosely related fragments.
