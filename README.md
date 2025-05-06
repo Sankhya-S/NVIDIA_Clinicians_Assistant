@@ -1,7 +1,7 @@
 ![NVIDID_Clinicians_Assistant](Image_Folder/Header_3.png)
 
 # NVIDIA Clinicians Assistant
-By Margo Kim, Sankhya Sivakumar, Brandon Ma & Sarah Auch
+By Margo Kim, Sankhya Sivakumar & Sarah Auch
 ## Background
 Healthcare professionals often face the challenge of preparing for patient meetings with minimal time, sometimes as little as 10 minutes. This limited preparation time can make it difficult to review and understand a patient's medical history thoroughly. However, the advancement of large language models (LLMs) and generative language models offers a promising solution to this issue.
 
@@ -16,9 +16,9 @@ This project is an AI-powered virtual "clinical assistant" that leverages a Retr
 ## Model and Dataset Card
 ### Models
 
-- **NVIDIA Embeddings**: Utilizes `nvidia/nv-embedqa-e5-v5` for embedding text.
-- **Milvus Vector Store**: Uses Milvus to store document embeddings, enabling efficient retrieval for question answering.
-- **Chat Model**: Uses `meta/Llama 3.1 70b nemotron` to generate answers based on retrieved document content.
+- **Embeddings**: Utilizes BGE M3 for embedding text.
+- **Milvus Vector Store**: Uses Milvus Lite to store document embeddings, enabling efficient retrieval for question answering.
+- **Chat Model**: Uses `llama-3.1-nemotron-70b-instruct` to generate answers based on retrieved document content.
 
 #### Primary Use Cases:
 - Rapid patient history review
@@ -54,11 +54,13 @@ We have developed and named four architectures to measure performance and improv
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Basic.png)
 #### Key Features:
 
-- Documents are chunked with a maximum of 500 words, using a 50-word overlap between chunks
-- Metadata, such as the date of entry, is stored in the Milvus database
+- Metadata-aware Retrieval: Document chunks are stored with metadata (e.g., patient ID, chart date/time) to prioritize temporally relevant content.
+- Multi-query Expansion: For each query, five semantically varied versions are generated using the LLM and used independently for retrieval, increasing recall.
+- Context Compression: Up to 50 retrieved chunks are deduplicated and reordered using LongContextReorder to maximize input quality for the LLM.
+- Faithfulness Constraints: The LLM is explicitly instructed to cite evidence and distinguish between factual statements and inferences.
 
 **Reasoning:**
-This is the first version created based on a prototype provided to us by our NVIDIA partners. The base model adds metadata to enhance the relevance of the document chunks.
+This pipeline enhances the basic RAG structure by increasing robustness, temporal relevance, and citation faithfulness—critical in clinical settings where transparency and accuracy matter most
 
 **Advanced Document Processing RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADParch.png)
@@ -66,23 +68,23 @@ This is the first version created based on a prototype provided to us by our NVI
 
 #### Key Features:
 
-- An LLM is used to extract subheadings from the documents
-- Another call is made to extract content based on the subheadings, then chunk the extracted content into 500-word segments with a 50-word overlap. The chunked documents, along with their subheadings and metadata, are stored to the Milvus database.
+- Subheading Extraction: The LLM identifies domain-specific subheadings (e.g., "Diagnosis", "Treatment Plan") from clinical notes.
+- Section-aware Chunking: Content under each subheading is recursively split into smaller, coherent chunks while maintaining clinical context.
+- Context-aware Retrieval: Subheading and timestamp metadata are stored and used during retrieval to focus on the most contextually relevant information.
 
 **Reasoning:**
-Strategically chunking the documents and storing the subheadings in the database provides the LLM with more contextually relevant information.
+By preserving the document's logical structure and aligning retrieval with clinical semantics, this design significantly improves contextual relevance and precision for specialized queries
 
 **Hybrid Search RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-Hybrid.png)
 
 #### Key Features:
-- Documents are chunked with a maximum of 500 words, using a 50-word overlap between chunks
-- Metadata, such as the date of entry, is stored in the Milvus database
-- An additional layer is added to the basic RAG architecture, called Hybrid Search
-- Hybrid Search uses both dense and sparse search techniques
+- Hybrid Retrieval: Combines dense (semantic) search with sparse (keyword-based) search to capture both semantic relevance and exact term matches.
+Reranking: Retrieved results are rescored and reordered using a BGE-M3-based reranker.
+Context Compression: After retrieval, redundant content is filtered and reordered to maximize informativeness before passing to the LLM.
 
 **Reasoning:**
-Sparse search ensures high precision by matching exact terms, which is critical for queries with specific keywords. Dense search improves recall by identifying semantically related documents, even when there’s no direct keyword overlap. The results from both searches are combined using a scoring mechanism, where the relevance scores from sparse and dense searches are weighted and aggregated.
+This architecture improves recall, especially for vague or underspecified queries. However, increased breadth must be carefully compressed to avoid diluting answer quality
 
 **Advanced Document Processing & Hybid Search RAG**
 ![NVIDID_Clinicians_Assistant](Image_Folder/RAG-ADP-Hybrid.png)
@@ -184,17 +186,19 @@ Ragas allows us to:
 
 #### Metrics Evaluated
 The following metrics are used to assess the chatbot's performance:
-- **Context Precision**: Evaluates how much of the retrieved context was actually relevant and necessary to answer the question by comparing it against a reference answer.
-- **Response Relevance**: Measures whether the generated response actually answers the given question, regardless of whether it's factual or faithful to the context. It's purely about relevance to the query. It assigns lower scores to incomplete or redundant answers and higher scores to highly relevant responses. The metric is computed using three elements: the user_input, the retrieved_contexts, and the response.
+- **Faithfulness**: Measures whether the model’s generated answers are factually supported by the retrieved source content. This metric helps detect hallucinations or unsupported claims, which are especially dangerous in medical settings.
+- **Answer Relevance**: Evaluates how well the answer aligns with the intent and content of the original clinical question. It penalizes incomplete or irrelevant responses, focusing on the user's query rather than strict factual correctness.
+- **Context Precision**: Assesses the proportion of retrieved content that was actually useful for answering the question. High scores indicate that the retriever efficiently pulled in focused, relevant context rather than excessive or unrelated information.
 
 
 ### Evaluation Results
 ![RAGAS_Evaluation](Image_Folder/RAG_evals.png)
-- Advanced Document Processing RAG achieved the highest context precision (0.82) but lower response relevancy (0.57)
-- Basic RAG showed the best balance with good context precision (0.74) and highest response relevancy (0.64)
-- Hybrid Search RAG performed well with context precision of 0.76 and response relevancy of 0.62
-- Advanced Document Processing & Hybrid Search RAG maintained strong context precision (0.78) but showed lower response relevancy (0.57)
+- RAG Baseline delivered the highest context precision (0.88) and answer relevance (0.69), suggesting that its simpler retrieval strategy, enhanced by multi-query expansion and context reordering, may help reduce noise and confusion for the LLM.
+- Advanced Document Processing achieved the highest faithfulness (0.61) due to its structured chunking and metadata-aware retrieval, which provided semantically grounded inputs aligned with clinical intent.
+- Hybrid Search maintained high relevance (0.68) and strong context precision (0.80) by combining dense and sparse retrieval methods, though faithfulness was slightly lower, likely due to surfacing loosely related fragments.
+- Advanced Document Processing + Hybrid (the most complex pipeline) did not outperform simpler versions in answer relevance (0.59), possibly due to increased context noise, redundancy, or over-retrieval.
 
+These results highlight a key insight: more complex architectures don’t guarantee better answers. The best performance stems from carefully balancing precision, relevance, and trustworthiness, rather than simply stacking more retrieval layers.
 
 
 ## Setup Steps
@@ -204,21 +208,16 @@ Follow these steps to get the chatbot up and running in less than 5 minutes:
 ### 1. Clone this repository 
 
 
-### 2. Start NVIDIA Containers: 
-Use the script_start.sh script to start the embedding and chat model containers
+### 2. Start Services: 
+We ran the NVIDIA Llama 3.1 model via a Singularity container on a local GPU server.
 
+- Ensure the Singularity container for the chat model is built and available on your server.
+- Start the container manually on your GPU node to serve the LLM endpoint.
+
+### 3. Run the Backend Pipeline
+Use the following command to launch the RAG-based chatbot pipeline:
 ```bash
-./script_start.sh true true true
-```
-First true initializes the Milvus database.
-Second true starts the NVIDIA Embedding Model service.
-Third true starts the NVIDIA Chat Model service.
-
-
-### 3. Run the Streamlit app
-
-```bash
-streamlit run streamlit_app.py
+python backend/RAG_implementation.py
 ```
 
 
@@ -228,17 +227,15 @@ streamlit run streamlit_app.py
 
 ### What is the impact of Clinicians Assistant?
 
-1.  Hospital data is increasingly becoming publicly available. This project demonstrates how a AI powered chatbot can be used for good by enabling better insights, improving decision-making, and supporting patient care.
-   
-2.  This project showcases different variations of RAG Architecture designed to enhance performance. It aims to inspire others to build upon these architectures or adapt them for applications in other fields, fostering innovation and broadening their impact across diverse domains.
+1. Improved Clinical Decision Support: As hospitals increasingly make medical data publicly accessible, this project showcases how an AI-powered assistant can distill complex clinical records into actionable insights—helping clinicians make faster, more confident decisions.
+2. Architectural Innovation: By comparing four different RAG pipeline variants, this project establishes a reproducible framework for optimizing retrieval techniques. These approaches can inspire broader applications across fields where contextualized document search is critical.
+3. Patient-Centric AI Design: The assistant supports—not replaces—clinicians by surfacing traceable, evidence-based summaries, ultimately aiming to improve patient care continuity, especially in time-constrained environments.
 
 ### What is the Next Step?
 
-1. The notes documents are just one half of the puzzle, as information is also stored in tabular data, such as gender, age, and readings from medical devices that capture data every minute. The goal of this project is to generate responses that incorporate information from both the notes documents and the tabular data. This integration allows users to access the maximum amount of information at their fingertips.
-   
-2. As we are surprised by our evaluation results, we plan to examine the metrics for other datasets, such as those from other patients or radiology notes. This will help us feel more confident in our evaluation technique.
-
-3. We are also interested in adding another layer to the current architectures called ReRank, specifically `rerank-qa-mistral-4b`. This GPU-accelerated model is optimized to provide a probability score indicating whether a given passage contains the necessary information to answer a question effectively.
+1. Scale Across Patients: Current evaluations use one patient. Future work will expand to multi-patient data to improve generalizability and simulate real-world diversity.
+2. Add Tabular Data Support: Notes are only half the story. Incorporating vitals, labs, and structured EHR data will allow the assistant to provide more holistic answers.
+3. Enable Patient-Level Isolation: Deployment will require designing retrieval systems that isolate document search by patient ID, ensuring safe and context-specific responses during inference.
 
 ## Sources:
 
@@ -247,7 +244,6 @@ streamlit run streamlit_app.py
  - “Introduction.” Ragas, 1 Nov. 2024, docs.ragas.io/en/stable/.
  - Johnson, Alistair, et al. “MIMIC-IV-Note: Deidentified Free-Text Clinical Notes.” PhysioNet, National Institute of Biomedical Imaging and Bioengineering, 6 Jan. 2023,    physionet.org/content/mimic-iv-note/2.2/. 
  - “Nvidia/Llama-3.1-Nemotron-70b-Instruct.” NVIDIA, NVIDIA Corporation, 2024, build.nvidia.com/nvidia/llama-3_1-nemotron-70b-instruct. 
- - “Nvidia/Nv-Embedqa-E5-V5.” NVIDIA, NVIDIA Corporation, 2024, build.nvidia.com/nvidia/nv-embedqa-e5-v5.
  - “Response Relevancy.” Ragas, 1 Nov. 2024, docs.ragas.io/en/latest/concepts/metrics/available_metrics/answer_relevance/#.
  - Custom Multi-hop Query - Ragas. (n.d.). https://docs.ragas.io/en/stable/howtos/customizations/testgenerator/_testgen-customisation/
 
